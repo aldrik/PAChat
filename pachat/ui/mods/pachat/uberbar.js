@@ -614,7 +614,7 @@
 			self.writeSystemMessage("TODO: IMPLEMENT THIS FUNCTION"); // TODO
 		};
 		
-		var commandList = ['/tryfixfriends', '/alignright', '/alignleft', '/ownerlist', '/adminlist', '/help', '/join', '/mute', '/unmute', '/kick', '/ban', '/banlist', '/unban', '/setrole', '/setaffiliation'].sort(function(a, b) {
+		var commandList = ['/setcolor', '/tryfixfriends', '/alignright', '/alignleft', '/ownerlist', '/adminlist', '/help', '/join', '/mute', '/unmute', '/kick', '/ban', '/banlist', '/unban', '/setrole', '/setaffiliation'].sort(function(a, b) {
 			return b.length - a.length;
 		});
 		
@@ -700,6 +700,8 @@
 					self.writeSystemMessage('Error while setting ' + args[0] + ' to ' + args[1]);
 					self.writeSystemMessage(args[0] + ' seems to be neither on the banlist nor in the channel.');
 				}
+			} else if (command === "/setcolor") {
+				setColor(args);
 			} else {
 				self.writeSystemMessage("unknown command: "+cmd);
 			}
@@ -745,8 +747,81 @@
 				self.writeSystemMessage("/alignright aligns the chatwindows to the right");
 			} else if (args[0] === "tryfixfriends") {
 				self.writeSystemMessage("/tryfixfriends tries to repopulate the friendlist. Only use in case your friendlist is bugged and empty. May work or may not work.");
+			} else if (args[0] === "setcolor") {
+				self.writeSystemMessage("/setcolor <group> <color> tries to change the displaycolor of the given group to the new color.");
+				self.writeSystemMessage("Allowed groups are 'own', 'other', 'mod' and 'owner'. Colors should be specified according to html/css standards (e.g. hex colors #rrggbb).");
 			}
 		};
+		
+		var stylesheet = undefined;
+		
+		var findStyleSheet =  function() {
+			_.forEach(document.styleSheets, function (elem, key) { 
+					if (elem.href == "coui://ui/mods/pachat/uberbar.css") {
+						stylesheet = elem;
+						return false;
+					}
+			});
+		};
+		
+		var setColor = function (args) {
+			if (args.length !== 2) {
+				writeHelp(['setcolor']);
+			}
+			changeColor(args[0], args[1]);
+		};
+		
+		var changeColor = function (group, color) {
+			if (!stylesheet) {
+				findStyleSheet();
+			}
+			
+			if (group === "own") {
+				_.forEach(stylesheet.rules, function (elem, key) {
+						if (elem.selectorText === ".chat-room-self-name") {
+							elem.style.color = color;
+							localStorage['pachat_colors_own'] = encode(elem.style.color);
+						}
+				});
+			} else if (group === "other") {
+				_.forEach(stylesheet.rules, function (elem, key) {
+						if (elem.selectorText === ".chat-room-user-name") {
+							elem.style.color = color;
+							localStorage['pachat_colors_other'] = encode(elem.style.color);
+						}
+				});
+			} else if (group === "mod") {
+				_.forEach(stylesheet.rules, function (elem, key) {
+						if (elem.selectorText === ".chat-room-moderator-name") {
+							elem.style.color = color;
+							localStorage['pachat_colors_mod'] = encode(elem.style.color);
+						}
+				});
+			} else if (group === "owner") {
+				_.forEach(stylesheet.rules, function (elem, key) {
+						if (elem.selectorText === ".chat-room-admin-name") {
+							elem.style.color = color;
+							localStorage['pachat_colors_admin'] = encode(elem.style.color);
+						}
+				});
+			} else {
+				self.writeSystemMessage('ERROR');
+				self.writeSystemMessage('Error while setting color of ' + group + ' because this group does not exist');
+			}
+		};
+		
+		if (localStorage['pachat_colors_own']) {
+			changeColor('own', decode(localStorage['pachat_colors_own']));
+		}
+		if (localStorage['pachat_colors_other']) {
+			changeColor('other', decode(localStorage['pachat_colors_other']));
+		}
+		if (localStorage['pachat_colors_mod']) {
+			changeColor('other', decode(localStorage['pachat_colors_mod']));
+		}
+		if (localStorage['pachat_colors_admin']) {
+			changeColor('other', decode(localStorage['pachat_colors_admin']));
+		}
 		
 		self.close = function() {
 			model.leaveRoom(self.roomName());
