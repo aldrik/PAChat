@@ -408,26 +408,46 @@
 	model.myLeague = ko.observable();
 	model.myRank = ko.observable();
 	
-	var initRank = function(cb) {
-        engine.asyncCall('ubernet.getPlayerRating', 'Ladder1v1').done(function (data) {
-        	try {
-        		var d = JSON.parse(data);
-        		model.myLeague(d.Rating)
-        		model.myRank(d.LeaderboardPosition > 0 ? (d.LeaderboardPosition+"") : "Inactive");
-        	} catch (e) {
-        		console.log("failed to get player rank!");
-        		console.log(e);
-        	} finally {
-        		cb();
-        	}
-        }).fail(function (data) {
-        	console.log("hard fail to get player rank");
-        	console.log(data);
-        	cb();
-        });
+	model.getRank = function(callback)
+	{
+	    engine.asyncCall('ubernet.getPlayerRating', 'Ladder1v1').done(function(data)
+	    {
+	        try
+	        {
+	            var d = JSON.parse(data);
+	            model.myLeague(d.Rating)
+	            model.myRank(d.LeaderboardPosition > 0 ? (d.LeaderboardPosition + "") : "Inactive");
+	        }
+	        catch (e)
+	        {
+	            console.log("failed to get player rank!");
+	            console.log(e);
+	        }
+	        finally
+	        {
+	            if (callback)
+	            {
+	                callback();
+	            };
+	        }
+	    }).fail(function(data)
+	    {
+	        console.log("hard fail to get player rank");
+	        console.log(data);
+
+	        if (callback)
+	        {
+	            callback();
+	        };
+
+	    });
 	};
 	
-
+	model.jabberPresenceType.subscribe(function()
+	{
+	    model.getRank();
+	});
+	
 	var setPresenceForUberbarVisibility = function(v) {
 		if (jabber) {
 			jabber.presenceType(v ? "available" : "dnd");
@@ -446,7 +466,7 @@
 					jabber.setChannelPresence(model.chatRooms()[i].roomName(), v, model.myLeague(), model.myRank());
 				}
 			});
-			initRank(function() {
+			model.getRank(function() {
 				if (!decode(localStorage["info.nanodesu.pachat.disablechat"])) {
 					model.joinChatRoom("halcyon");
 				}
