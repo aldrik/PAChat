@@ -637,6 +637,15 @@
       engine.call('web.launchPage', href );      
     }
     
+    model.messageLinkClick = function()
+    {
+      
+      var part = this;
+      
+      model.openUrl( part.text );
+
+    }
+    
 		self.addMessage = function(message)
 		{
 		    message.mentionsMe = message.content && message.content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1 && model.uberId() !== message.user.uberId();
@@ -912,26 +921,31 @@
 		}
 	}
 	
-	model.chatRoomContext = function(data, event, roomModel) {
-		if (event && data && data.uberId() !== model.uberId() && event.type === "contextmenu") { // knockout should do this for me, but somehow it does not?!
-			model.contextRoom(roomModel);
+	model.chatRoomContextMenu = function( room, event)
+	{
+	
+	  var user = this;
+	  
+		model.contextRoom(room);
 			
-			model.contextMenuForContact(data, event);
+  	model.contextMenuForContact(user, event);
 			
+/*
 			$(document).bind("click.contexthackhandler", function() {
 				setTimeout(function() {
 					model.contextRoom(undefined);
 				}, 50);
 				$(document).unbind("click.contexthackhandler");
 			});
+*/
 			
-			$('#contextMenu a[data-bind="click: remove"]').parent().remove(); // "remove" has no purpose in the chatroom
-			var ctxMenu = $('#contextMenu');
-			var bottomMissingSpace = ctxMenu.offset().top - $(window).height() + ctxMenu.height()
-			if (bottomMissingSpace > 0) {
-				ctxMenu.css("top", ctxMenu.position().top - bottomMissingSpace);
-			}
+		$('#contextMenu a[data-bind="click: remove"]').parent().remove(); // "remove" has no purpose in the chatroom
+		var ctxMenu = $('#contextMenu');
+		var bottomMissingSpace = ctxMenu.offset().top - $(window).height() + ctxMenu.height()
+		if (bottomMissingSpace > 0) {
+			ctxMenu.css("top", ctxMenu.position().top - bottomMissingSpace);
 		}
+
 	};
 	
 	model.showUberBar.subscribe(setPresenceForUberbarVisibility);
@@ -1027,7 +1041,7 @@
 	                                <!-- ko if: !user.blocked() || user.isAdmin() || user.isModerator() -->
 	                                <div class="chat_message" data-bind="css: {'markedline': mentionsMe}">
 										<span class="chat_message_time" data-bind="text: new Date(time).toLocaleTimeString()"></span>
-	                                    <span data-bind="text: user.displayNameComputed(), event: {contextmenu: model.chatRoomContext(user, event, $parent)},
+	                                    <span data-bind="text: user.displayNameComputed(), event: {contextmenu: model.chatRoomContextMenu.bind(user, $parent, event)},
 										css: {'chat-room-user-name': !user.isModerator() && !user.isAdmin(),
 																'chat-room-moderator-name': user.isModerator() && !user.isAdmin(),
 																'chat-room-admin-name': user.isAdmin(),
@@ -1035,7 +1049,7 @@
 																'chat-room-self-name': model.uberId() === user.uberId()}"></span>:
 <!-- ko foreach: parts -->
 <!-- ko if: link  -->
-                                    <a class="chat-message-text selectable-text" data-bind="click: model.openUrl( text ), attr: { href: text, target : '_blank' }, text: text"></a>
+                                    <a class="chat-message-text selectable-text" data-bind="click: model.messageLinkClick, attr: { href: text, target : '_blank' }, text: text"></a>
 <!-- /ko -->
 <!-- ko ifnot: link  -->
                                     <span class="chat-message-text selectable-text" data-bind="text: text"></span>
@@ -1048,7 +1062,7 @@
                             </div>
 							<div class="div-chat-room-users ">
 								<!-- ko foreach: sortedUsers -->
-								<div class="chat_user ellipsesoverflow" data-bind="event: {contextmenu: model.chatRoomContext($data, event, $parent)}">
+								<div class="chat_user ellipsesoverflow" data-bind="event: {contextmenu: model.chatRoomContextMenu.bind($data, $parent, event)}">
 									<div class="status-visual" data-bind="css: { 'online': available, 'offline': offline, 'away': away, 'dnd': dnd }"></div>
 									<!-- ko if: hasLeagueImage -->
 									<img data-placement="right" width="24px" height="20px" data-bind="attr: {src: leagueImg()}, tooltip: displayRank()" />
