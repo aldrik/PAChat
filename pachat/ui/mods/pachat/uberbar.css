@@ -19,6 +19,11 @@ span.chat_message_time {
     align-items: center;
 }
 
+span.chat-message-text
+{
+  color: #ddd;  
+}
+
 .selectable-text {
 	-webkit-user-select: text;
 	user-select: text;

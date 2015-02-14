@@ -135,12 +135,20 @@
                 return;
             self.startChat()
         }
-        self.sendReply = function () {
+        
+        self.sendReply = function()
+        {
             jabber.sendChat(self.partnerUberId(), self.reply());
-            self.messageLog.push({ 'name': model.uberId, 'message': self.reply() });
+            message = self.reply();
+            self.messageLog.push(
+            {
+                'name': model.uberId,
+                'message': msg,
+                'parts': model.splitURLs(message)
+            });
             self.reply('');
         };
-
+        
         self.sendChatInvite = function () {
             self.pendingChat(true);
             self.startChat();
@@ -605,11 +613,37 @@
 			}, 0); // TODO HACK
 		};
 		
-		self.addMessage = function(message) {
-			message.mentionsMe = message.content && message.content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1 && model.uberId() !== message.user.uberId();
-			self.messages.push(message);
-			self.dirty(self.minimized());
-			self.dirtyMention(self.minimized() && message.mentionsMe);
+    model.splitURLs = function(message)
+    {
+        var parts = [];
+
+        _.forEach(message.split(/(\bhttps?:\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig), function(part)
+        {
+            if (part.trim())
+            {
+                parts.push(
+                {
+                    text: part,
+                    link: part.slice(0, 4) == 'http'
+                });
+            }
+        });
+
+        return parts;
+    }
+    
+    model.openUrl = function( href )
+    {
+      engine.call('web.launchPage', href );      
+    }
+    
+		self.addMessage = function(message)
+		{
+		    message.mentionsMe = message.content && message.content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1 && model.uberId() !== message.user.uberId();
+		    message.parts = model.splitURLs(message.content);
+		    self.messages.push(message);
+		    self.dirty(self.minimized());
+		    self.dirtyMention(self.minimized() && message.mentionsMe);
 		};
 
 		self.dirty = ko.observable(false);
@@ -772,14 +806,17 @@
 			model.leaveRoom(self.roomName());
 		};
 		
-		self.writeSystemMessage = function(msg) {
-			var fake = makeChatRoomUser(model.uberId(), false, false, false, undefined, undefined, "");
-			fake.displayNameComputed = ko.observable("");
-			self.addMessage({
-				user: fake,
-				content: msg,
-				time: new Date().getTime()
-			});
+		self.writeSystemMessage = function(message)
+		{
+		    var fake = makeChatRoomUser(model.uberId(), false, false, false, undefined, undefined, "");
+		    fake.displayNameComputed = ko.observable("");
+		    self.addMessage(
+		    {
+		        user: fake,
+		        parts: model.splitURLs(message),
+		        content: message,
+		        time: new Date().getTime()
+		    });
 		};
 		
 		self.tryFillInTypedName = function() {
@@ -996,7 +1033,14 @@
 																'chat-room-admin-name': user.isAdmin(),
 																'chat-room-muted-name': user.isMuted(),
 																'chat-room-self-name': model.uberId() === user.uberId()}"></span>:
-	                                    <span class="chat-msg selectable-text" data-bind="text: content"></span>
+<!-- ko foreach: parts -->
+<!-- ko if: link  -->
+                                    <a class="chat-message-text selectable-text" data-bind="click: model.openUrl( text ), attr: { href: text, target : '_blank' }, text: text"></a>
+<!-- /ko -->
+<!-- ko ifnot: link  -->
+                                    <span class="chat-message-text selectable-text" data-bind="text: text"></span>
+<!-- /ko -->
+<!-- /ko -->
 	                                </div>
 	                                <!-- /ko -->
                                 <!-- /ko -->
