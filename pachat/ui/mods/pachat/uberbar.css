@@ -1,3 +1,20 @@
+#roomContextMenu
+{
+  position: fixed;
+  z-index: 1000;
+  display: none;
+}
+
+#roomContextMenu ul.dropdown-menu
+{
+  display: block;
+}
+
+div.div-win.chat-room
+{
+  margin-bottom: -36px;
+}
+
 .markedline {
     background: #530505;
     border: 1px solid #080000;
