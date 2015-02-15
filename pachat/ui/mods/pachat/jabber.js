@@ -5,7 +5,7 @@ console.log("load modified jabber.js"); // modifications are marked with PA CHAT
 var CONFERENCE_URL = "conference.xmpp.uberent.com";
 /////////////// PA CHAT
 
-var allowLogging = true; /* squelch logging by default */
+var allowLogging = false; /* squelch logging by default */
 function log(object) {
 	if (allowLogging)
 		console.log(object);
@@ -14,9 +14,21 @@ function log(object) {
 function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	var self = this;
 	var connection;
-	
+
 	var MAX_RETRIES = 3;
 	var connection_attempts = 0;
+
+// pa lobby needs a disconnect method
+
+  var stayDisconnected = false;
+  
+  self.disconnect = function(reason)
+  {
+      self.stayDisconnected = true;
+      connection.disconnect(reason);
+  }
+
+//
 
 	self.useUbernetdev = ko.observable().extend({
 		session : 'use_ubernetdev'
@@ -195,16 +207,19 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	
 	
 	/////////// PA CHAT
-	
-	var nameInChannels ={};
-	
+
+
+// pa lobby expose nameInChannels for later use
+
+	self.nameInChannels ={};
+
 	self.leaveGroupChat = function(roomName) {
 		if (!connection.connected || !roomName) {
 			return;
 		}
 		roomName = roomName.toLowerCase();
-		connection.send($pres({from: self.jid(), to: roomName+"@"+CONFERENCE_URL+"/"+nameInChannels[roomName], type: "unavailable"}));
-		delete nameInChannels[roomName];
+		connection.send($pres({from: self.jid(), to: roomName+"@"+CONFERENCE_URL+"/"+self.nameInChannels[roomName], type: "unavailable"}));
+		delete self.nameInChannels[roomName];
 	};
 	
 	self.joinGroupChat = function(roomName, league, rank, name) {
@@ -212,7 +227,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 			return;
 		}
 		roomName = roomName.toLowerCase();
-		nameInChannels[roomName] = name;
+		self.nameInChannels[roomName] = name;
 		
 		connection.send($pres({from: self.jid(), to: roomName+"@"+CONFERENCE_URL+"/"+name,
 			league: league, rank: rank}));
@@ -223,7 +238,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 			return;
 		}
 		roomName = roomName.toLowerCase();
-		connection.send($pres({from: self.jid(), to: roomName+"@"+CONFERENCE_URL+"/"+nameInChannels[roomName],
+		connection.send($pres({from: self.jid(), to: roomName+"@"+CONFERENCE_URL+"/"+self.nameInChannels[roomName],
 			league: league, rank: rank}).c("show").t(presence));
 	};
 	
@@ -304,6 +319,62 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 		
 		adminActions[id] = {uberId : uberId, action : affiliation, reason : reason, room : roomName};		
 	};
+
+	self.destroyRoom = function(roomName, reason)
+	{
+	    if (!connection.connected || !roomName)
+	    {
+	        return;
+	    }
+	    var iq = $iq(
+	    {
+	        from: self.jid(),
+	        to: roomName + "@" + CONFERENCE_URL,
+	        type: 'set'
+	    }).c('query', {
+	        xmlns: 'http://jabber.org/protocol/muc#owner'
+	    }).c('destroy', {
+	        jid: self.jid()
+	    });
+
+	    if (reason)
+	    {
+	        iq.c('reason').t(reason);
+	    }
+
+	    var id = connection.sendIQ(iq, onIqSuccess, onIqError);
+
+	    adminActions[id] = {
+	        action: 'destroy',
+	        reason: reason,
+	        room: roomName
+	    };
+	};
+
+	self.clearRoomHistory = function(roomName)
+	{
+	    if (!connection.connected || !roomName)
+	    {
+	        return;
+	    }
+	    var iq = $iq(
+	    {
+	        from: self.jid(),
+	        to: roomName + "@" + CONFERENCE_URL,
+	        type: 'set'
+	    }).c('command', {
+	        xmlns: 'http://jabber.org/protocol/commands',
+	        action: 'execute',
+	        node: 'urn:xmpp:muc-admin:clear-room-history'
+	    });
+
+	    var id = connection.sendIQ(iq, onIqSuccess, onIqError);
+
+	    adminActions[id] = {
+	        action: 'clear',
+	        room: roomName
+	    };
+	};
 	
 	self.showBanList = function(roomName) {
 		self.showListing(roomName, "outcast");
@@ -352,12 +423,15 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 		
 		var errors = message.getElementsByTagName('error');
 		var explanation = '';
-		
-		for (var i = 0; i < errors.length; i++) {
-			explanation += 'Failed because ' + errors[i].firstChild.nodeName;
-			explanation +=  errors[i].getElementsByTagName('text')[0] ? '. Explanation: ' + Strophe.getText(errors[i].getElementsByTagName('text')[0]) : '';
+
+		for (var i = 0; i < errors.length; i++)
+		{
+// pa lobby tweak of error messages
+		    explanation += 'failed because ' + errors[i].firstChild.nodeName;
+		    explanation += errors[i].getElementsByTagName('text')[0] ? ' (' + Strophe.getText(errors[i].getElementsByTagName('text')[0]) + ')' : '';
+//
 		}
-		
+
 		console.log(explanation);
 		
 		errorMsgHandler(instance.room, instance.action, {uberId : instance.uberId, user : instance.user,  explanation : explanation} );
@@ -389,13 +463,13 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 		connection.sendIQ(iq);
 	}
 
-	function JidToUberid(jid) {
-		return jid.split('@')[0];
-	}
+    function JidToUberid(jid) {
+        return jid.split('@')[0];
+    }
 
-	function UberidToJid(uberid) {
-		return uberid + '@' + SERVICE_URL;
-	}
+    function UberidToJid(uberid) {
+        return uberid + '@' + SERVICE_URL;
+    }
 
 	function onConnect(status) {
 		log('!!! onConnect');
@@ -411,16 +485,20 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 			log('Strophe is disconnecting.');
 			break;
 		case Strophe.Status.DISCONNECTED:
-			log('Strophe is disconnected.');
-			self.jid(undefined);
-			self.sid(undefined);
-			self.rid(undefined);
-			if (connection_attempts < MAX_RETRIES) {
-				log('Attempting to reconnect to XMPP. Tries:'
-						+ connection_attempts);
-				setTimeout(connectOrResume, 3000);
-			}
-			break;
+
+  		log('Strophe is disconnected.');
+  
+  		self.jid(undefined);
+  		self.sid(undefined);
+  		self.rid(undefined);
+  
+  		if (!self.stayDisconnected && connection_attempts < MAX_RETRIES)
+  		{
+  		    log('Attempting to reconnect to XMPP. Tries:' + connection_attempts);
+  		    setTimeout(self.connectOrResume, 30000);
+  		}
+  		break;
+
 		case Strophe.Status.CONNECTED:
 			log('!!!Strophe is connected as ' + self.jid());
 			initHandlers();
@@ -478,168 +556,211 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 		}
 	}
 	
-	function onGrpChat(message) {
-		try {
-			var x = message.getElementsByTagName("x");
+	function onGrpChat(message)
+	{
 
-			var stati = [];
-			if (x && x.length > 0) {
-				var status = x[0].getElementsByTagName("status");
-				if (status) {
-					for (var i = 0; i < status.length; i++) {
-						stati.push($(status[i]).attr("code"));
-					}
-				}
-			}
-			
-			var body = message.getElementsByTagName('body');
-			
-			var from = $(message).attr('from');
-			var room = from.split('@')[0];
-			
-			var content = '';
-			if (Strophe.getText(body[0]))
-				content = htmlSpecialChars(Strophe.getText(body[0]), true);
-			
-			var delay = message.getElementsByTagName("delay");
-			var timestamp = new Date().getTime();
-			if (delay.length === 1) {
-				var dt = new Date($(delay[0]).attr("stamp")).getTime();
-				timestamp = dt;
-				
-				// fix cases of "history from the future" due to the servertime of the xmpp server being rather questionable... 7 minutes ahead of reality
-				if (new Date().getTime() < timestamp) {
-					timestamp = new Date().getTime() - (1000 * 5); 
-				}
-			}
-			
-			paGrpMsgHandler(room, from, stati, content, timestamp);
-		} catch (e) {
-			log("!!! group chat error");
-			console.log(e);
-		} finally {
-			return true;
-		}
+	    try
+	    {
+	        var x = message.getElementsByTagName("x");
+
+	        var stati = [];
+	        if (x && x.length > 0)
+	        {
+	            var status = x[0].getElementsByTagName("status");
+	            if (status)
+	            {
+	                for (var i = 0; i < status.length; i++)
+	                {
+	                    stati.push($(status[i]).attr("code"));
+	                }
+	            }
+	        }
+
+	        var uberId;
+	        var jid;
+
+	        var body = message.getElementsByTagName('body');
+
+	        var from = $(message).attr('from');
+
+	        // handle is everything after the first /
+	        
+	        var pos = from.indexOf('/');
+
+	        var handle = pos == -1 ? '' : from.slice(pos + 1);
+
+	        var systemMessage = pos == -1;
+
+	        var room = from.split('@')[0];
+
+	        var content = '';
+	        if (Strophe.getText(body[0])) content = htmlSpecialChars(Strophe.getText(body[0]), true);
+
+	        var delay = message.getElementsByTagName("delay");
+	        var timestamp = new Date().getTime();
+	        if (delay.length === 1)
+	        {
+
+	            $delay = $(delay[0])
+
+	            jid = $delay.attr('from');
+
+	            uberId = JidToUberid(jid);
+
+	            var dt = new Date($delay.attr("stamp")).getTime();
+	            timestamp = dt;
+
+	            // fix cases of "history from the future" due to the servertime of the xmpp server being rather questionable... 7 minutes ahead of reality
+	            
+	            if (new Date().getTime() < timestamp)
+	            {
+	                timestamp = new Date().getTime() - (1000 * 5);
+	            }
+	        }
+
+	        paGrpMsgHandler(room, handle, from, uberId, stati, content, timestamp, jid, systemMessage);
+	    }
+	    catch (e)
+	    {
+	        console.log(e);
+	    }
+	    finally
+	    {
+	        return true;
+	    }
 	}
 	
-	function onPresence(message) {
-		log("onPresence");
-		try {
-			var type = $(message).attr('type');
-			var from = $(message).attr('from');
-			var to = $(message).attr('to');
-			var status = $(message).attr('status');
-			
-			log('jabber::onPresence');
-			log(message);
-			log(type);
-			log(status);
-			log(from);
-			
-			/* store jid so we can broadcast status changes */
-			if (!jabber.rosterMap()[from])
-				jabber.roster.push(from);
+	function onPresence(message)
+	{
+	    log("onPresence");
 
-			if (type === 'subscribe') {
-				// Allow
-				connection.send($iq({
-					type : "set"
-				}).c("query", {
-					xmlns : "jabber:iq:roster"
-				}).c("item", from));
-				connection.send($pres({
-					to : from,
-					type : "subscribe"
-				}));
-				connection.send($pres({
-					to : from,
-					type : 'subscribed'
-				}));
+	    try
+	    {
+	        var type = $(message).attr('type');
+	        var from = $(message).attr('from');
+	        var to = $(message).attr('to');
+	        var status = $(message).attr('status');
 
-				// Block
-				// connection.send($pres({ to: from, "type": "unsubscribed" }));
-			} else {
-				// PA CHAT
-				var isGrpChat = from.indexOf(CONFERENCE_URL) !== -1;
-				
-				var user = JidToUberid(from);
-				var chatRoom = undefined;
-				var userinfo = {};
-				var stati = [];
-				var fullChannelName = undefined;
-				
-				if (isGrpChat) {
-					
-					if (!type) {
-						var show = message.getElementsByTagName("show");
-						if (show && show.length > 0 && Strophe.getText(show[0])) {
-							type = htmlSpecialChars(Strophe.getText(show[0]), true);
-						};
-					}
-					
-					chatRoom = user; // for grp chats the name of the room is in front of the @conference.xmpp....
-					
-					fullChannelName = from;
-					
-					userinfo.league = $(message).attr('league');
-					userinfo.rank = $(message).attr('rank');
-					
-					var x = message.getElementsByTagName("x");
-					
-					if (x && x.length > 0) {
-						var children = $(x).children();
-						if (children) {
-							for (var i = 0; i < children.length; i++) {
-								var child = $(children[i]);
-								if (child[0].nodeName === "item") {
-									userinfo.affiliation = $(child[0]).attr("affiliation");
-									userinfo.role = $(child[0]).attr("role");
-									user = JidToUberid($(child[0]).attr("jid"));
-									
-								} else if (child[0].nodeName === "status") {
-									// probably required to handle kick/ban messages
-								}
-							}
-						}
-					}
-					
-					
-					if (x && x.length > 0) {
-						var stt = x[0].getElementsByTagName("status");
-						if (stt) {
-							for (var i = 0; i < stt.length; i++) {
-								stati.push($(stt[i]).attr("code"));
-							}
-						}
-					}
-				}
-				
-				paPresenceHandler(user, type || 'available',
-						status, isGrpChat, chatRoom, userinfo, stati, fullChannelName);
-				
-				 // PA CHAT
-			}
+	        log('jabber::onPresence');
+	        log(message);
+	        log(type);
+	        log(status);
+	        log(from);
 
-			return true;
-		}
-		// If the handler doesn't return true, it will be deleted
-		catch (e) {
-			log('!!!PRESENCE error:' + e);
-			return true;
-		}
+	        var isGrpChat = from.indexOf(CONFERENCE_URL) !== -1;
+
+	        if (!isGrpChat && !jabber.rosterMap()[from]) jabber.roster.push(from);
+
+	        if (type === 'subscribe')
+	        {
+	            // Allow
+	            connection.send($iq(
+	            {
+	                type: "set"
+	            }).c("query", {
+	                xmlns: "jabber:iq:roster"
+	            }).c("item", from));
+	            connection.send($pres(
+	            {
+	                to: from,
+	                type: "subscribe"
+	            }));
+	            connection.send($pres(
+	            {
+	                to: from,
+	                type: 'subscribed'
+	            }));
+
+	            // Block
+	            // connection.send($pres({ to: from, "type": "unsubscribed" }));
+	        }
+	        else
+	        {
+
+	            var uid = JidToUberid(from);
+	            var chatRoom = undefined;
+	            var userinfo = {};
+	            var stati = [];
+	            var jid = undefined;
+
+	            // handle is everything after the first /
+	            var pos = from.indexOf('/');
+
+	            var handle = pos == -1 ? '' : from.slice(pos + 1);
+
+	            if (isGrpChat)
+	            {
+
+	                if (!type)
+	                {
+	                    var show = message.getElementsByTagName("show");
+	                    if (show && show.length > 0 && Strophe.getText(show[0]))
+	                    {
+	                        type = htmlSpecialChars(Strophe.getText(show[0]), true);
+	                    };
+	                }
+
+	                chatRoom = uid; // for grp chats the name of the room is in front of the @conference.xmpp....
+	                userinfo.league = $(message).attr('league');
+	                userinfo.rank = $(message).attr('rank');
+
+	                var x = message.getElementsByTagName("x");
+
+	                if (x && x.length > 0)
+	                {
+	                    var children = $(x).children();
+	                    if (children)
+	                    {
+	                        for (var i = 0; i < children.length; i++)
+	                        {
+	                            var child = $(children[i]);
+	                            if (child[0].nodeName === "item")
+	                            {
+	                                userinfo.affiliation = $(child[0]).attr("affiliation");
+	                                userinfo.role = $(child[0]).attr("role");
+
+	                                jid = $(child[0]).attr("jid");
+
+	                                uid = JidToUberid(jid);
+
+	                            }
+	                            else if (child[0].nodeName === "status")
+	                            {
+	                                // probably required to handle kick/ban messages
+	                            }
+	                        }
+	                    }
+	                }
+
+	                if (x && x.length > 0)
+	                {
+	                    var stt = x[0].getElementsByTagName("status");
+	                    if (stt)
+	                    {
+	                        for (var i = 0; i < stt.length; i++)
+	                        {
+	                            stati.push($(stt[i]).attr("code"));
+	                        }
+	                    }
+	                }
+	            }
+
+	            paPresenceHandler(from, handle, uid, type || 'available', status, isGrpChat, chatRoom, userinfo, stati, jid);
+
+	            // PA CHAT
+	        }
+
+	        return true;
+	    }
+	    // If the handler doesn't return true, it will be deleted
+	    catch (e)
+	    {
+	        console.log('!!!PRESENCE error:' + e);
+	        return true;
+	    }
 	};
 
-	
-	// PA Chat
-	// a hack to attempt to refill the friendlist
-	var nextRosterHandler = undefined;
-	self.setNextRosterHandler = function(h) {
-		nextRosterHandler = h;
-	};
-	
-	
-	// PA Chat
-	
+
 	function onRoster(message) {
 		log("onRoster");
 		try {
@@ -661,12 +782,6 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 					/* store jid so we can broadcast status changes */
 					if (!jabber.rosterMap()[jid])
 						jabber.roster.push(jid);
-					
-					// PA CHAT
-					if (nextRosterHandler && sub === "both") {
-						nextRosterHandler(JidToUberid(jid));
-					}
-					// PA CHAT
 					
 					log('!!!   jid:' + jid + ' name:' + name + ' sub:' + sub
 							+ ' ask:' + ask);
