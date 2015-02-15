@@ -1,476 +1,499 @@
 (function() {
+	var modBaseDir = typeof paStatsBaseDir !== "undefined" ? paStatsBaseDir : 'coui://ui/mods/';
 
-	/**
-	 * scrolls to the bottom if the scrollable view was at the bottom before the value changed
-	 */
-    ko.bindingHandlers.autoscroll = {
-            init: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
-            	// right before the value changes, check if the parent of the element was scrolled to the bottom
-            	var wasAtBottom = false;
-            	valueAccessor().subscribe(function() {
-                    if (!element || !element.parentNode)
-                        return;
-                    var p = element.parentNode;
-                    wasAtBottom = p.scrollHeight - p.scrollTop === p.clientHeight;
-            	}, null, "beforeChange");
-            	
-            	// right after the value changed, if the parent of the element was scrolled to the bottom, scroll it to the bottom again
-                valueAccessor().subscribe(function (value) {
-                    if (!element || !element.parentNode)
-                        return;
-                    if (wasAtBottom) {
-                        element.scrollIntoView(true);
-                    }
-                });
-            }
-        };
-	
-	// black magic http://stackoverflow.com/questions/805107/creating-multiline-strings-in-javascript/5571069#5571069
-	function multiLines(f) {
-		  return f.toString().replace(/^[^\/]+\/\*!?/, '').replace(/\*\/[^\/]+$/, '');
-	}
+	model.maxMessageLogLength = ko.observable(500).extend({local : 'info.nanodesu.pachat.max_message_log_length'});
+	model.ownColor = ko.observable("#ff00cc").extend({local : 'info.nanodesu.pachat.color_own'});
+	model.otherColor = ko.observable("#00FF00").extend({local : 'info.nanodesu.pachat.color_other'});
+	model.modColor = ko.observable("#3399FF").extend({local : 'info.nanodesu.pachat.color_mod'});
+	model.ownerColor = ko.observable("#FF9900").extend({local : 'info.nanodesu.pachat.color_owner'});
+	model.blockedColor = ko.observable("#A0A0A0").extend({local : 'info.nanodesu.pachat.color_blocked'});
+	model.mutedColor = ko.observable("#606060").extend({local : 'info.nanodesu.pachat.color_muted'});
+	model.alignChatLeft = ko.observable().extend({local : 'alignChatLeft'});
 
 	loadScript("coui://ui/main/shared/js/matchmaking_utility.js");
-	
+
 	ko.bindingHandlers.resizable = {
-		    init: function(element, valueAccessor) {
-		         var options = valueAccessor();
-		         $(element).resizable(options);
-		    }  
+		init : function(element, valueAccessor) {
+			var options = valueAccessor();
+			$(element).resizable(options);
+		}
+	};
+
+	// from uberbar.js with extensions for rank and league
+
+	/*
+	 * an ubernet user you have encounterd: includes friends, recent contacts,
+	 * ignored, blocked
+	 */
+	function ExtendedUserViewModel(id) {
+		var self = this;
+
+		self.rank = ko.observable(undefined);
+
+		self.league = ko.observable(undefined);
+		self.leagueImage = ko.computed(function() {
+			return MatchmakingUtility.getSmallBadgeURL(self.league());
+		});
+
+		self.hasLeagueImage = ko.computed(function() {
+			return self.leagueImage() !== undefined && self.leagueImage() !== "";
+		});
+
+		self.uberId = ko.observable(id);
+		self.displayName = LeaderboardUtility.getPlayerDisplayName(id);
+
+		self.pendingChat = ko.observable(false);
+
+		self.tags = ko.observable({});
+		self.tagList = ko.computed(function() {
+			var result = [];
+
+			_.forEach(self.tags(), function(element, key) {
+				if (element)
+					result.push(key);
+			});
+
+			return result;
+		});
+
+		function updateTags() {
+			var result = model.userTagMap()[id];
+			self.tags(result ? result : {});
+		}
+		updateTags();
+
+		self.friend = ko.computed(function() {
+			return self.tags()['FRIEND']
+		});
+		self.pendingFriend = ko.computed(function() {
+			return self.tags()['PENDING_FRIEND']
+		});
+		self.allowChat = ko.computed(function() {
+			return self.friend() || self.tags()['ALLOW_CHAT']
+		});
+		self.ignored = ko.computed(function() {
+			return self.tags()['IGNORED']
+		});
+		self.blocked = ko.computed(function() {
+			return self.tags()['BLOCKED']
+		});
+		self.search = ko.computed(function() {
+			return self.tags()['SEARCH']
+		});
+
+		self.lastInteractionTime = ko.computed(function() {
+			return model.idToInteractionTimeMap()[self.uberId()]
+		});
+
+		self.hasName = ko.computed(function() {
+			return !!self.displayName();
+		});
+
+		self.presenceType = ko.computed(function() {
+			if (!model.idToJabberPresenceTypeMap())
+				return 'unavailable';
+			var result = model.idToJabberPresenceTypeMap()[self.uberId()];
+			return result || 'unavailable';
+		});
+		self.available = ko.computed(function() {
+			return self.presenceType() === 'available'
+		});
+		self.away = ko.computed(function() {
+			return self.presenceType() === 'away'
+		});
+		self.dnd = ko.computed(function() {
+			return self.presenceType() === 'dnd'
+		});
+		self.offline = ko.computed(function() {
+			return self.presenceType() === 'unavailable'
+		});
+		self.status = ko.computed(function() {
+			if (!model.idToJabberPresenceStatusMap())
+				return '';
+			var s = model.idToJabberPresenceStatusMap()[self.uberId()];
+			return (s && s !== 'undefined') ? s : '';
+		});
+		self.online = ko.computed(function() {
+			return !self.offline()
+		});
+
+		self.startChat = function() {
+			console.log('startChat');
+			var exists = model.conversationMap()[self.uberId()];
+			if (exists)
+				exists.minimized(false);
+			else
+				model.startConversationsWith(self.uberId())
+		};
+		self.startChatIfOnline = function() {
+			console.log('startChatIfOnline');
+			if (self.offline())
+				return;
+			self.startChat()
+		}
+		self.sendReply = function() {
+			// palobby
+			var msg = self.reply();
+
+			jabber.sendChat(self.partnerUberId(), msg);
+			self.messageLog.push({
+				'name' : model.displayName(),
+				'message' : msg,
+				'parts' : model.splitURLs(msg)
+			});
+			//
+			self.reply('');
 		};
 
-// from uberbar.js with extensions for rank and league
- 
-/* an ubernet user you have encounterd: includes friends, recent contacts, ignored, blocked */
-  function ExtendedUserViewModel(id) {
-      var self = this;
-      
-      self.rank = ko.observable(undefined);
+		self.sendChatInvite = function() {
+			console.log('sendChatInvite');
+			self.pendingChat(true);
+			self.startChat();
 
-      self.league = ko.observable(undefined);
-      self.leagueImage = ko.computed(function()
-      {
-          return MatchmakingUtility.getSmallBadgeURL(self.league());
-      });
+			jabber.sendCommand(self.uberId(), 'chat_invite');
+		}
 
-      self.hasLeagueImage = ko.computed(function()
-      {
-          return self.leagueImage() !== undefined && self.leagueImage() !== "";
-      });
-	
-        self.uberId = ko.observable(id);
-        self.displayName = LeaderboardUtility.getPlayerDisplayName(id);
+		self.acceptChatInvite = function() {
+			console.log('acceptChatInvite');
+			if (!self.pendingChat()) {
+				self.pendingChat(true); // this is done to allow chat while
+										// ALLOW_CHAT tag is being added
+				self.startChat();
+				jabber.sendCommand(self.uberId(), 'accept_chat_invite');
+			}
 
-        self.pendingChat = ko.observable(false);
+			self.addTag('ALLOW_CHAT', function() {
+				self.pendingChat(false)
+			});
+			self.startChat();
+		}
 
-        self.tags = ko.observable({});
-        self.tagList = ko.computed(function () {
-            var result = [];
+		self.declineChatInvite = function() {
+			console.log('declineChatInvite');
+			if (!self.pendingChat())
+				jabber.sendCommand(self.uberId(), 'decline_chat_invite');
+		}
 
-            _.forEach(self.tags(), function (element, key) {
-                if (element)
-                    result.push(key);
-            });
+		self.sendFriendRequest = function() {
+			console.log('sendFriendRequest');
+			if (self.friend())
+				return;
 
-            return result;
-        });
+			self.addTag('PENDING_FRIEND');
+			jabber.sendCommand(self.uberId(), 'friend_request');
+		}
+		self.acceptFriendRequest = function() {
+			console.log('acceptFriendRequest');
+			if (!self.pendingFriend())
+				jabber.sendCommand(self.uberId(), 'accept_friend_request');
 
-        function updateTags() {
-            var result = model.userTagMap()[id];
-            self.tags(result ? result : {});
-        }
-        updateTags();
+			self.addTag('FRIEND', function() {
+				self.removeTag('PENDING_FRIEND')
+			});
+			jabber.addContact(self.uberId());
+		}
+		self.declineFriendRequest = function() {
+			console.log('declineFriendRequest');
+			if (!self.pendingFriend())
+				jabber.sendCommand(self.uberId(), 'decline_friend_request');
 
-        self.friend = ko.computed(function () { return self.tags()['FRIEND'] });
-        self.pendingFriend = ko.computed(function () { return self.tags()['PENDING_FRIEND'] });
-        self.allowChat = ko.computed(function () { return self.friend() || self.tags()['ALLOW_CHAT'] });
-        self.ignored = ko.computed(function () { return self.tags()['IGNORED'] });
-        self.blocked = ko.computed(function () { return self.tags()['BLOCKED'] });
-        self.search = ko.computed(function () { return self.tags()['SEARCH'] });
+			self.removeTag('PENDING_FRIEND');
+		}
+		self.unfriend = function() {
+			console.log('unfriend');
+			self.removeTag('FRIEND');
+			jabber.removeContact(self.uberId());
+		}
+		self.sendUnfriend = function() {
+			console.log('sendUnfriend');
+			if (!self.friend())
+				return;
 
-        self.lastInteractionTime = ko.computed(function () { return model.idToInteractionTimeMap()[self.uberId()] });
+			self.unfriend();
+			jabber.sendCommand(self.uberId(), 'unfriend');
+		}
 
-        self.hasName = ko.computed(function () { return !!self.displayName(); });
+		self.sendInviteToGame = function() {
+			jabber.sendCommand(self.uberId(), 'game_invite');
 
-        self.presenceType = ko.computed(function () {
-            if (!model.idToJabberPresenceTypeMap())
-                return 'unavailable';
-            var result = model.idToJabberPresenceTypeMap()[self.uberId()];
-            return result || 'unavailable';
-        });
-        self.available = ko.computed(function () { return self.presenceType() === 'available' });
-        self.away = ko.computed(function () { return self.presenceType() === 'away' });
-        self.dnd = ko.computed(function () { return self.presenceType() === 'dnd' });
-        self.offline = ko.computed(function () { return self.presenceType() === 'unavailable' });
-        self.status = ko.computed(function () {
-            if (!model.idToJabberPresenceStatusMap())
-                return '';
-            var s = model.idToJabberPresenceStatusMap()[self.uberId()];
-            return (s && s !== 'undefined') ? s : '';
-        });
-        self.online = ko.computed(function () { return !self.offline() });
-        
-        self.startChat = function () {
-  console.log( 'startChat' );
-            var exists = model.conversationMap()[self.uberId()];
-            if (exists)
-                exists.minimized(false);
-            else
-                model.startConversationsWith(self.uberId())
-        };
-        self.startChatIfOnline = function () {
-  console.log( 'startChatIfOnline' );
-            if (self.offline())
-                return;
-            self.startChat()
-        }
-        self.sendReply = function () {
-  // palobby
-            var msg = self.reply();
-            
-            jabber.sendChat(self.partnerUberId(), msg);
-            self.messageLog.push({ 'name': model.displayName(), 'message': msg, 'parts' : model.splitURLs( msg ) });
-  //
-            self.reply('');
-        };
+			model.pendingGameInvites()[self.uberId()] = model.lobbyInfo() ? model.lobbyInfo().lobby_id : false;
 
-        self.sendChatInvite = function () {
-console.log( 'sendChatInvite' );
-            self.pendingChat(true);
-            self.startChat();
+			if (!model.lobbyInfo())
+				api.Panel.message('game', 'create_lobby');
+		}
 
-            jabber.sendCommand(self.uberId(), 'chat_invite');
-        }
+		self.acceptInviteToGame = function() {
+			model.acceptedGameInviteFrom(self.uberId());
+			jabber.sendCommand(self.uberId(), 'accept_game_invite');
+		}
+		self.declineInviteToGame = function() {
+			jabber.sendCommand(self.uberId(), 'decline_game_invite');
+		}
 
-        self.acceptChatInvite = function () {
-console.log( 'acceptChatInvite' );
-            if (!self.pendingChat()) {
-                self.pendingChat(true); //this is done to allow chat while ALLOW_CHAT tag is being added
-                self.startChat();
-                jabber.sendCommand(self.uberId(), 'accept_chat_invite');
-            }
+		self.viewProfile = function() {
+		}
+		self.report = function() {
+			self.block();
+		}
 
-            self.addTag('ALLOW_CHAT', function () { self.pendingChat(false)});
-            self.startChat();
-        }
+		self.remove = function() {
+			self.sendUnfriend();
+			model.removeAllUserTagsFor(self.uberId());
+			updateTags();
+			_.defer(model.requestUbernetUsers);
+		}
 
-        self.declineChatInvite = function () {
- console.log( 'declineChatInvite' );
-          if (!self.pendingChat())
-                jabber.sendCommand(self.uberId(), 'decline_chat_invite');
-        }
+		self.addTag = function(tag, callback) {
+			model.addUserTags(self.uberId(), [ tag ]);
+			updateTags();
+			if (callback)
+				callback();
+		}
 
-        self.sendFriendRequest = function () {
-console.log( 'sendFriendRequest' );
-            if (self.friend())
-                return;
+		self.removeTag = function(tag, callback) {
+			model.removeUserTags(self.uberId(), [ tag ]);
+			updateTags();
+			if (callback)
+				callback();
+		}
 
-            self.addTag('PENDING_FRIEND');
-            jabber.sendCommand(self.uberId(), 'friend_request');
-        }
-        self.acceptFriendRequest = function () {
-console.log( 'acceptFriendRequest' );
-            if (!self.pendingFriend())
-                jabber.sendCommand(self.uberId(), 'accept_friend_request');
+		self.block = function() {
+			self.addTag('BLOCKED', self.sendUnfriend);
+			jabber.removeContact(self.uberId());
+		}
 
-            self.addTag('FRIEND', function () { self.removeTag('PENDING_FRIEND') });
-            jabber.addContact(self.uberId());
-        }
-        self.declineFriendRequest = function () {
- console.log( 'declineFriendRequest' );
-            if (!self.pendingFriend())
-                jabber.sendCommand(self.uberId(), 'decline_friend_request');
+		self.unblock = function() {
+			self.removeTag('BLOCKED');
+		}
 
-            self.removeTag('PENDING_FRIEND');
-        }
-        self.unfriend = function () {
- console.log( 'unfriend' );
-            self.removeTag('FRIEND');
-            jabber.removeContact(self.uberId());
-        }
-        self.sendUnfriend = function () {
- console.log( 'sendUnfriend' );
-            if (!self.friend())
-                return;
+	}
+	;
 
-            self.unfriend();
-            jabber.sendCommand(self.uberId(), 'unfriend');
-        }
-        
-        self.sendInviteToGame = function () {
-            jabber.sendCommand(self.uberId(), 'game_invite');
+	// end of ExtendedUserViewModel
 
-            model.pendingGameInvites()[self.uberId()] = model.lobbyInfo() ? model.lobbyInfo().lobby_id : false;
+	// the following from uber.js need to use our ExtendedUserViewModel
 
-            if (!model.lobbyInfo())
-                api.Panel.message('game', 'create_lobby');
-        }
+	model.addContact = function(ubername, uberid, tags) {
+		if (uberid === model.uberId())
+			return;
 
-        self.acceptInviteToGame = function () {
-            model.acceptedGameInviteFrom(self.uberId());
-            jabber.sendCommand(self.uberId(), 'accept_game_invite');
-        }
-        self.declineInviteToGame= function () {
-            jabber.sendCommand(self.uberId(), 'decline_game_invite');
-        }
+		model.addUserTags(uberid, tags);
+		model.users.push(new ExtendedUserViewModel(uberid));
+	}
 
-        self.viewProfile = function () { }
-        self.report = function () {
-            self.block();
-        }
+	model.requestUbernetUsers = function() {
+		model.maybeConvertFriends();
 
-        self.remove = function () {
-            self.sendUnfriend();
-            model.removeAllUserTagsFor(self.uberId());
-            updateTags();     
-            _.defer(model.requestUbernetUsers);
-        }
+		var contacts = _.reject(_.keys(model.userTagMap()), function(element) {
+			return isNaN(element);
+		});
+		var results = _.map(contacts, function(element) {
+			return new ExtendedUserViewModel(element);
+		});
 
-        self.addTag = function (tag, callback) {
-            model.addUserTags(self.uberId(), [tag]);
-            updateTags();
-            if (callback)
-                callback();
-        }
+		model.users(results);
+	};
 
-        self.removeTag = function (tag, callback) {
-            model.removeUserTags(self.uberId(), [tag]);
-            updateTags();
-            if (callback)
-                callback();
-        }
+	model.maybeCreateNewContactWithId = function(uberid) {
+		if (model.idToContactMap()[uberid] || uberid === model.uberId()) {
+			model.idToInteractionTimeMap()[uberid] = _.now();
+			model.idToInteractionTimeMap(model.idToInteractionTimeMap()); // trigger write to session storage
+			return;
+		}
 
-        self.block = function () {
-            self.addTag('BLOCKED', self.sendUnfriend);
-            jabber.removeContact(self.uberId());
-        }
+		// model.users.push(new UserViewModel({ 'FriendUberId': uberid })); // luckily this will never work in real PA otherwise duplicate users
+		model.addContact('', uberid, [ 'CONTACT' ]);
+	}
 
-        self.unblock = function () {
-            self.removeTag('BLOCKED');           
-        }
-     
-    };
-    
-// end of ExtendedUserViewModel
+	// room view of ExtendedUserViewModel linked to ExtendedUserViewModel
 
-// the following from uber.js need to use our ExtendedUserViewModel
+	function RoomExtendedUserViewModel(realUser, name, uberid, chatHandle, admin, mod, muted, jid, presenceType,
+			presenceStatus, removed) {
 
-        model.addContact = function (ubername, uberid, tags) {
-            if (uberid === model.uberId())
-                return;
+		var self = this;
 
-            model.addUserTags(uberid, tags);
-            model.users.push(new ExtendedUserViewModel(uberid));
-        }
-        
-       model.requestUbernetUsers = function () {
-            model.maybeConvertFriends();
+		self.uberId = ko.observable(uberid);
 
-            var contacts = _.reject(_.keys(model.userTagMap()), function (element) {
-                return isNaN(element);
-            });
-            var results = _.map(contacts, function (element) {
-                return new ExtendedUserViewModel(element);
-            });
+		self.user = realUser;
 
-            model.users(results);
-        };
+		self.handle = ko.observable(chatHandle);
+		self.jid = ko.observable(jid);
+		self.roomName = ko.observable(name);
 
-        model.maybeCreateNewContactWithId = function (uberid) {
-            if (model.idToContactMap()[uberid] || uberid === model.uberId()) {
-                model.idToInteractionTimeMap()[uberid] = _.now();
-                model.idToInteractionTimeMap(model.idToInteractionTimeMap()); /* trigger write to session storage */
-                return;
-            }
-
-//             model.users.push(new UserViewModel({ 'FriendUberId': uberid })); // luckily this will never work in real PA otherwise duplicate users
-            model.addContact('', uberid, ['CONTACT']);
-        }
-
-
-// room view of ExtendedUserViewModel linked to ExtendedUserViewModel
-
-  function RoomExtendedUserViewModel( realUser, name, uberid, chatHandle, admin, mod, muted, jid, presenceType, presenceStatus, removed )
-  {
-
-    var self = this;
-    
-    self.uberId = ko.observable( uberid );
-    
-    self.user = realUser;
-    
-    self.handle = ko.observable( chatHandle );
-    self.jid = ko.observable( jid );
-	  self.roomName = ko.observable( name );
-	  
 		self.isModerator = ko.observable(mod);
 		self.isAdmin = ko.observable(admin);
 		self.isMuted = ko.observable(muted);
 
-// these are room level
+		// these are room level
 
-    self.jabberPresenceType = ko.observable( presenceType );
-    self.jabberPresenceStatus = ko.observable( presenceStatus );
-    
-    self.available = ko.computed(function () { return self.jabberPresenceType() === 'available' });
-    self.away = ko.computed(function () { return self.jabberPresenceType() === 'away' });
-    self.dnd = ko.computed(function () { return self.jabberPresenceType() === 'dnd' });
-    self.offline = ko.computed(function () { return self.jabberPresenceType() === 'unavailable' });
-    self.online = ko.computed(function () { return !self.offline() });
-    
-    self.friend = ko.computed( function ()
-    {
-      return self.user.friend();
-    });
+		self.jabberPresenceType = ko.observable(presenceType);
+		self.jabberPresenceStatus = ko.observable(presenceStatus);
 
-    self.blocked = ko.computed( function ()
-    {
-      return self.user.blocked();
-    });
-    
-		self.isRemoved = ko.observable( removed );
-	  
-  	self.resource = ko.computed( function()
-  	{
-  
-  // resource is everything after the first /
-      
-      var jid = self.jid();
-      
-      if ( ! jid )
-      {
-        return '';
-      }
-      
-      var pos = jid.indexOf( '/' );
-        
-   		return pos == -1 ? '' : jid.slice( pos + 1 );
-      
-  	});
+		self.available = ko.computed(function() {
+			return self.jabberPresenceType() === 'available'
+		});
+		self.away = ko.computed(function() {
+			return self.jabberPresenceType() === 'away'
+		});
+		self.dnd = ko.computed(function() {
+			return self.jabberPresenceType() === 'dnd'
+		});
+		self.offline = ko.computed(function() {
+			return self.jabberPresenceType() === 'unavailable'
+		});
+		self.online = ko.computed(function() {
+			return !self.offline()
+		});
 
-    self.roomDisplayName = ko.computed( function()
-    {
+		self.friend = ko.computed(function() {
+			return self.user.friend();
+		});
 
-// we start with chat handle until a display name is available
+		self.blocked = ko.computed(function() {
+			return self.user.blocked();
+		});
 
-      var chatHandle = self.handle();
-      
-      var displayName = chatHandle;
-      
-      var uid = self.uberId();
-      
-      if ( uid )
-      {
+		self.isRemoved = ko.observable(removed);
 
-        var name = self.user.displayName();
-        
-        if ( name )
-        {
-          displayName = name;
- 
-          var room = model.chatRoomMap()[ self.roomName() ];
-          
-          if ( displayName && room )
-          {
-            var handles = room.displayNameHandleMap()[ displayName ];
-            
-            if ( ! handles )
-            {
-              handles = room.displayNameHandleMap()[ displayName ] = {};
-            }
-            
-            handles[ chatHandle ] = uid;
-          }
-        }
-      }
-      
-      return displayName;
-      
-     } );
-     
-  	self.displayInfo = ko.computed(function()
-  	{
-      var league = self.user && self.user.league();
-      
-      var leagueName = 'Unranked';
-      
-      if ( league )
-      {
-        leagueName = MatchmakingUtility.getTitle( league );
-      }
-      
-      var pos = league && leagueName != 'Provisional' ? '#' + ( self.user && self.user.rank() ) + ' ' : '';
-      
-      var name = self.roomDisplayName();
-      
-      var resource = self.resource();
-            
-      return leagueName + ' ' + pos +  name + ( resource ? ' (' + resource + ')' : '' );
-  	});
-  	
-  }
+		self.nameColor = ko.computed(function() {
+			if (self.uberId() === model.uberId()) {
+				return model.ownColor();
+			} else if (!self.isModerator() && !self.isAdmin()) {
+				return model.otherColor();
+			} else if (self.isModerator() && !self.isAdmin()) {
+				return model.modColor();
+			} else if (self.isAdmin()) {
+				return model.ownerColor();
+			} else if (self.isMuted()) {
+				return model.mutedColor();
+			} else if (self.isBlocked()) {
+				return model.blockedColor();
+			}
+		});
 
-// end of RoomExtendedUserViewModel
+		self.resource = ko.computed(function() {
+			// resource is everything after the first /
 
-	function ChatRoomModel(roomName)
-	{
-	
+			var jid = self.jid();
+
+			if (!jid) {
+				return '';
+			}
+
+			var pos = jid.indexOf('/');
+
+			return pos == -1 ? '' : jid.slice(pos + 1);
+
+		});
+
+		self.roomDisplayName = ko.computed(function() {
+			// we start with chat handle until a display name is available
+
+			var chatHandle = self.handle();
+
+			var displayName = chatHandle;
+
+			var uid = self.uberId();
+
+			if (uid) {
+
+				var name = self.user.displayName();
+
+				if (name) {
+					displayName = name;
+
+					var room = model.chatRoomMap()[self.roomName()];
+
+					if (displayName && room) {
+						var handles = room.displayNameHandleMap()[displayName];
+
+						if (!handles) {
+							handles = room.displayNameHandleMap()[displayName] = {};
+						}
+
+						handles[chatHandle] = uid;
+					}
+				}
+			}
+
+			return displayName;
+
+		});
+
+		self.displayInfo = ko.computed(function() {
+			var league = self.user && self.user.league();
+
+			var leagueName = 'Unranked';
+
+			if (league) {
+				leagueName = MatchmakingUtility.getTitle(league);
+			}
+
+			var pos = league && leagueName != 'Provisional' ? '#' + (self.user && self.user.rank()) + ' ' : '';
+
+			var name = self.roomDisplayName();
+
+			var resource = self.resource();
+
+			return leagueName + ' ' + pos + name + (resource ? ' (' + resource + ')' : '');
+		});
+
+	}
+
+	// end of RoomExtendedUserViewModel
+
+	function ChatRoomModel(roomName) {
+
 		var self = this;
-		
+
 		self.bannedUsers = ko.observable([]);
-		
+
 		self.roomName = ko.observable(roomName);
 
 		self.minimized = ko.observable(false);
 		self.messages = ko.observableArray([]); // objects like {user, content, time}
 		self.sortedMessages = ko.computed(function() {
 			return self.messages().sort(function(a, b) {
-				return a.time - b.time; 
+				return a.time - b.time;
 			});
 		});
 		self.lastMessage = ko.computed(function() {
-			return self.sortedMessages()[self.sortedMessages().length-1];
+			return self.sortedMessages()[self.sortedMessages().length - 1];
 		});
-		
+
 		self.usersMap = ko.observable({}); // jid > chat room ExtendedUserViewModel
 		self.fromJidMap = ko.observable({}); // real time message from > jid
 		self.messageJidMap = ko.observable({}); // message jid usage
 
-    self.displayNameHandleMap = ko.observable({});
+		self.displayNameHandleMap = ko.observable({});
 
-		self.presentUsers =  ko.computed(function() 
-		{
-  		return _.reject( self.usersMap(), function( user ) { return user.isRemoved(); } );
+		self.presentUsers = ko.computed(function() {
+			return _.reject(self.usersMap(), function(user) {
+				return user.isRemoved();
+			});
 		});
 
-		self.sortedUsers = ko.computed(function()
-		{
-			return self.presentUsers().sort(function(a, b)
-			{
-  			 var aName = a.roomDisplayName();
-  			 
-  			if ( aName == undefined )
-  			{
-    			return 1;
-  			}
+		self.sortedUsers = ko.computed(function() {
+			return self.presentUsers().sort(function(a, b) {
+				var aName = a.roomDisplayName();
 
-        var bName = b.roomDisplayName();
-
-  			if ( bName == undefined )
-  			{
-    			return -1;
-  			}
-  			
-  			var aModerator = a.isModerator();
-  			var bModerator = b.isModerator();
-  			
-  			if ( ( aModerator && bModerator ) || ( ! aModerator && ! bModerator ) )
-  			{
-					return aName.localeCompare( bName );
+				if (aName == undefined) {
+					return 1;
 				}
-				else 
-				{
-					return (aModerator && ! bModerator ) ? -1 : 1;
+
+				var bName = b.roomDisplayName();
+
+				if (bName == undefined) {
+					return -1;
+				}
+
+				var aModerator = a.isModerator();
+				var bModerator = b.isModerator();
+
+				if ((aModerator && bModerator) || (!aModerator && !bModerator)) {
+					return aName.localeCompare(bName);
+				} else {
+					return (aModerator && !bModerator) ? -1 : 1;
 				}
 			});
 		});
@@ -478,7 +501,7 @@ console.log( 'acceptFriendRequest' );
 		self.usersCount = ko.computed(function() {
 			return self.sortedUsers().length;
 		});
-		
+
 		self.selfIsAdmin = function() {
 			var r = false;
 			_.forEach(self.usersMap(), function(u) {
@@ -489,7 +512,7 @@ console.log( 'acceptFriendRequest' );
 			});
 			return r;
 		};
-		
+
 		self.toggleMinimized = function() {
 			self.minimized(!self.minimized());
 		};
@@ -502,61 +525,55 @@ console.log( 'acceptFriendRequest' );
 			}
 			self.scrollDown();
 		});
-		
-		self.scrollDown = function()
-		{
 
-			_.defer( function()
-			{
-			  $chat = $('#chat-' + self.roomName() );
-			  
-				if ( $chat.length > 0 )
-				{
-					$chat.scrollTop( $chat[0].scrollHeight );
+		self.scrollDown = function() {
+			_.defer(function() {
+				$chat = $('#chat-' + self.roomName());
+
+				if ($chat.length > 0) {
+					$chat.scrollTop($chat[0].scrollHeight);
 				}
-			} );
-			
+			});
 		};
 
-    model.splitURLs = function(message)
-    {
-        var parts = [];
+		model.splitURLs = function(message) {
+			var parts = [];
 
-        _.forEach(message.split(/(\bhttps?:\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig), function(part)
-        {
-            if (part.trim())
-            {
-                parts.push(
-                {
-                    text: part,
-                    link: part.slice(0, 4) == 'http'
-                });
-            }
-        });
+			_.forEach(message.split(/(\bhttps?:\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig),
+					function(part) {
+						if (part.trim()) {
+							parts.push({
+								text : part,
+								link : part.slice(0, 4) == 'http'
+							});
+						}
+					});
 
-        return parts;
-    }
+			return parts;
+		}
 
-    model.openUrl = function( href )
-    {
-      engine.call('web.launchPage', href );      
-    }
-    
-    model.messageLinkClick = function()
-    {
-      
-      var part = this;
-      
-      model.openUrl( part.text );
+		model.openUrl = function(href) {
+			engine.call('web.launchPage', href);
+		}
 
-    }
-    
-		self.addMessage = function(message)
-		{
-		    message.mentionsMe = message.roomUser && message.content && message.content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1 && model.uberId() !== message.roomUser.uberId();
-		    message.parts = model.splitURLs(message.content), self.messages.push(message);
-		    self.dirty(self.minimized());
-		    self.dirtyMention(self.minimized() && message.mentionsMe);
+		model.messageLinkClick = function() {
+			var part = this;
+			model.openUrl(part.text);
+		}
+
+		self.addMessage = function(message) {
+			message.mentionsMe = message.roomUser && message.content
+					&& message.content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1
+					&& model.uberId() !== message.roomUser.uberId();
+			message.parts = model.splitURLs(message.content);
+			self.messages.push(message);
+
+			if (self.messages().length > model.maxMessageLogLength()) {
+				self.messages.splice(0, 1);
+			}
+
+			self.dirty(self.minimized());
+			self.dirtyMention(self.minimized() && message.mentionsMe);
 		};
 
 		self.dirty = ko.observable(false);
@@ -566,7 +583,7 @@ console.log( 'acceptFriendRequest' );
 				self.dirtyMention(false);
 			}
 		});
-		
+
 		self.messageLine = ko.observable('');
 		self.sendMessageLine = function() {
 			if (self.messageLine().startsWith("/")) {
@@ -576,253 +593,233 @@ console.log( 'acceptFriendRequest' );
 			}
 			self.messageLine('');
 		};
-		
+
 		self.tryAnnounceLobby = function(msg) {
 			self.writeSystemMessage("TODO: IMPLEMENT THIS FUNCTION"); // TODO
 		};
-		
-		var commandList = ['/tryfixfriends', '/alignright', '/alignleft', '/ownerlist', '/adminlist', '/help', '/join', '/mute', '/unmute', '/kick', '/ban', '/banlist', '/unban', '/setrole', '/setaffiliation'].sort(function(a, b) {
+
+		var commandList = [ '/sethistorylength', '/setcolor', '/tryfixfriends', '/alignright', '/alignleft',
+				'/ownerlist', '/adminlist', '/help', '/join', '/mute', '/unmute', '/kick', '/ban', '/banlist',
+				'/unban', '/setrole', '/setaffiliation' ].sort(function(a, b) {
 			return b.length - a.length;
 		});
-		
+
 		var cutStart = function(str, cut) {
 			return str.slice(cut.length, str.length);
 		};
 
 		self.handleCommand = function(cmd) {
 			var command = undefined;
-			
+
 			for (var i = 0; i < commandList.length; i++) {
 				if (cmd.startsWith(commandList[i])) {
 					command = commandList[i];
 					break;
 				}
 			}
-			
-			var args = cutStart(cmd, command+" ").split(" ");
+
+			var args = cutStart(cmd, command + " ").split(" ");
 			for (var i = 0; i < args.length; i++) {
 				if (args[i].endsWith("\\\\")) {
-					args[i] = args[i].slice(0, args[i].length-1);
+					args[i] = args[i].slice(0, args[i].length - 1);
 				} else if (args[i].endsWith("\\")) {
-					var wSpace = args[i].slice(0, args[i].length-1)+ " ";
-					args[i] = wSpace + args[i+1];
-					args.splice(i+1, 1);
+					var wSpace = args[i].slice(0, args[i].length - 1) + " ";
+					args[i] = wSpace + args[i + 1];
+					args.splice(i + 1, 1);
 					i--;
 				}
 			}
-			
-      var roomName = self.roomName();
 
-      switch (command)
-      {
+			var roomName = self.roomName();
+
+			switch (command) {
+			case '/sethistorylength':
+				var l = Number(args[0]);
+				if (isNaN(l)) {
+					self.writeSystemMessage(l + " is not a number");
+				} else {
+					model.maxMessageLogLength(l);
+				}
+				break;
+
+			case '/setcolor':
+				var grp = args[0];
+				var clr = args[1];
+				if (grp && clr) {
+					switch (grp) {
+					case "own":
+						model.ownColor(clr);
+						break;
+					case "other":
+						model.otherColor(clr);
+						break;
+					case "mod":
+						model.modColor(clr);
+						break;
+					case "owner":
+						model.ownerColor(clr);
+						break;
+					case "muted":
+						model.mutedColor(clr);
+						break;
+					case "blocked":
+						model.blockedColor(clr);
+						break;
+					default:
+						self.writeSystemMessage("unknown group: " + grp);
+						break;
+					}
+				} else {
+					self.writeSystemMessage("needs 2 parameters: <group> <html color code>");
+				}
+				break;
+				
+			case '/help':
+				writeHelp(args);
+				break;
+
+			case '/tryfixfriends':
+				model.hackFixFriends();
+				break;
+
+			case '/alignleft':
+				model.alignChatLeft(true);
+				break;
+
+			case '/alignright':
+				model.alignChatLeft(false);
+				break;
+
+			case '/banlist':
+				jabber.showListing(roomName, "outcast");
+				break;
+
+			case '/adminlist':
+				jabber.showListing(roomName, "admin");
+				break;
+
+			case '/ownerlist':
+				jabber.showListing(roomName, "owner");
+				break;
+
+			case '/join':
+				var roomName = args[0];
+				model.joinChatRoom(roomName);
+				break;
+
+			case '/mute':
+				var displayName = args[0];
+				var reason = args[1] || '';
+				self.mute(displayName, reason);
+				break;
+
+			case '/unmute':
+				var displayName = args[0];
+				var reason = args[1] || '';
+				self.unmute(displayName, reason);
+				break;
+
+			case '/kick':
+				var displayName = args[0];
+				var reason = args[1] || '';
+				self.kick(displayName, reason);
+				break;
+
+			case '/ban':
+				var displayName = args[0];
+				var reason = args[1] || '';
+				var uberId;
+
+				var handles = self.displayNameHandleMap()[displayName];
 
-      case '/help':
+				if (handles) {
+					uberId = _.last(_.values(handles));
+				}
 
-          writeHelp(args);
+				if (uberId) {
 
-          break;
+					self.ban(uberId, reason);
 
-      case '/tryfixfriends':
+				} else {
+					self.writeSystemMessage(displayName + ' not found');
+				}
+				break;
 
-          model.hackFixFriends();
+			case '/unban':
+				var displayName = args[0];
+				var reason = args[1] || '';
 
-          break;
+				var found = self.bannedUsers().filter(function(bannedUser) {
+					return bannedUser.roomDisplayName() === displayName;
+				});
 
-      case '/alignleft':
+				if (found.length > 0) {
 
-          model.alignChatLeft(true);
+					var uberId = found[0].uberId();
 
-          break;
+					self.unban(uberId, reason);
 
-      case '/alignright':
+				} else {
+					self.writeSystemMessage(displayName + ' not found');
+				}
+				break;
 
-          model.alignChatLeft(false);
+			case "/setrole":
+				var name = args[0];
+				var role = args[1];
+				var reason = args[2] || '';
 
-          break;
+				var handles = self.displayNameHandleMap()[name];
 
-      case '/banlist':
+				if (handles) {
 
-          jabber.showListing(roomName, "outcast");
+					_.forEach(handles, function(jid, handle) {
+						console.log('setrole ' + role + ' ' + handle);
 
-          break;
+						jabber.setRole(roomName, handle, role, reason);
 
-      case '/adminlist':
+					});
 
-          jabber.showListing(roomName, "admin");
+				} else {
+					self.writeSystemMessage(name + ' not found');
+				}
+				break;
 
-          break;
+			case '/setaffiliation':
+				var name = args[0];
+				var affiliation = args[1];
+				var reason = args[2] || '';
+				var uberId;
 
-      case '/ownerlist':
+				var handles = self.displayNameHandleMap()[name];
 
-          jabber.showListing(roomName, "owner");
+				if (handles) {
+					uberId = _.last(_.values(handles));
+				} else {
+					var results = self.bannedUsers().filter(function(bannedUser) {
+						return bannedUser.roomDisplayName() === name;
+					});
 
-          break;
+					if (results.length > 0) {
+						var uberId = results[0].uberId();
+					}
+				}
 
-      case '/join':
+				if (uberId) {
+					console.log('setaffiliation ' + affiliation + ' for ' + uberId + ' ' + reason);
+					jabber.setAffiliation(roomName, uberId, affiliation, reason);
+				} else {
+					self.writeSystemMessage(name + ' not found');
+				}
+				break;
 
-          var roomName = args[0];
+			default:
+				self.writeSystemMessage("unknown command: " + cmd);
+				break;
+			}
+		};
 
-          model.joinChatRoom(roomName);
-
-          break;
-
-      case '/mute':
-
-          var displayName = args[0];
-          var reason = args[1] || '';
-
-          self.mute(displayName, reason);
-
-          break;
-
-      case '/unmute':
-
-          var displayName = args[0];
-          var reason = args[1] || '';
-
-          self.unmute(displayName, reason);
-
-          break;
-
-      case '/kick':
-
-          var displayName = args[0];
-          var reason = args[1] || '';
-
-          self.kick(displayName, reason);
-
-          break;
-
-      case '/ban':
-
-          var displayName = args[0];
-          var reason = args[1] || '';
-          var uberId;
-
-          var handles = self.displayNameHandleMap()[displayName];
-
-          if (handles)
-          {
-              uberId = _.last(_.values(handles));
-          }
-
-          if (uberId)
-          {
-
-              self.ban(uberId, reason);
-
-          }
-          else
-          {
-              self.writeSystemMessage(displayName + ' not found');
-          }
-
-          break;
-
-      case '/unban':
-
-          var displayName = args[0];
-          var reason = args[1] || '';
-
-          var found = self.bannedUsers().filter(function(bannedUser)
-          {
-              return bannedUser.roomDisplayName() === displayName;
-          });
-
-          if (found.length > 0)
-          {
-
-              var uberId = found[0].uberId();
-
-              self.unban(uberId, reason);
-
-          }
-          else
-          {
-              self.writeSystemMessage(displayName + ' not found');
-          }
-
-          break;
-
-      case "/setrole":
-
-          var name = args[0];
-          var role = args[1];
-          var reason = args[2] || '';
-
-          var handles = self.displayNameHandleMap()[name];
-
-          if (handles)
-          {
-
-              _.forEach(handles, function(jid, handle)
-              {
-                  console.log('setrole ' + role + ' ' + handle);
-
-                  jabber.setRole(roomName, handle, role, reason);
-
-              });
-
-          }
-          else
-          {
-              self.writeSystemMessage(name + ' not found');
-          }
-
-          break;
-
-      case '/setaffiliation':
-
-          var name = args[0];
-          var affiliation = args[1];
-          var reason = args[2] || '';
-          var uberId;
-
-          var handles = self.displayNameHandleMap()[name];
-
-          if (handles)
-          {
-              uberId = _.last(_.values(handles));
-          }
-          else
-          {
-
-              var results = self.bannedUsers().filter(function(bannedUser)
-              {
-                  return bannedUser.roomDisplayName() === name;
-              });
-
-              if (results.length > 0)
-              {
-                  var uberId = results[0].uberId();
-              }
-
-          }
-
-          if (uberId)
-          {
-
-              console.log('setaffiliation ' + affiliation + ' for ' + uberId + ' ' + reason);
-
-              jabber.setAffiliation(roomName, uberId, affiliation, reason);
-
-          }
-          else
-          {
-              self.writeSystemMessage(name + ' not found');
-          }
-
-          break;
-
-      default:
-
-          self.writeSystemMessage("unknown command: " + cmd);
-
-          break;
-      }
-    };
-
-		var writeHelp = function (args) {
+		var writeHelp = function(args) {
 			if (!args[0]) {
 				self.writeSystemMessage("You can minimize PA, if somebody writes your name or private messages you, PA will blink.");
 				self.writeSystemMessage("You can write a part of a name and press tab to autocomplete.");
@@ -862,71 +859,66 @@ console.log( 'acceptFriendRequest' );
 				self.writeSystemMessage("/alignright aligns the chatwindows to the right");
 			} else if (args[0] === "tryfixfriends") {
 				self.writeSystemMessage("/tryfixfriends tries to repopulate the friendlist. Only use in case your friendlist is bugged and empty. May work or may not work.");
+			} else if (args[0] === "setcolor") {
+				self.writeSystemMessage("/setcolor <group> <color> tries to change the displaycolor of the given group to the new color.");
+				self.writeSystemMessage("Allowed groups are 'own', 'other', 'mod', 'owner', 'muted' and 'blocked'. Colors should be specified according to html/css standards (e.g. hex colors #rrggbb).");
+			} else if (args[0] === "sethistorylength") {
+				self.writeSystemMessage("/sethistorylength <integer> sets the maximum length before history messages are discarded. Default is 500. Changing requires rejoining a channel to take affect on it.");
+			} else {
+				self.writeSystemMessage("there is no help for : " + args[0]);
 			}
 		};
-		
-		self.close = function()
-		{
-		    model.leaveRoom(self.roomName());
+
+		self.close = function() {
+			model.leaveRoom(self.roomName());
 		};
 
-		self.writeSystemMessage = function(msg)
-		{
-		    self.addMessage(
-		    {
-		        handle: '',
-		        roomUser: undefined,
-		        parts: model.splitURLs(msg),
-		        content: msg,
-		        time: new Date().getTime()
-		    });
+		self.writeSystemMessage = function(msg) {
+			self.addMessage({
+				handle : '',
+				roomUser : undefined,
+				parts : model.splitURLs(msg),
+				content : msg,
+				time : new Date().getTime()
+			});
 		};
 
-		self.tryFillInTypedName = function()
-		{
-		    var words = self.messageLine().split(" ");
-		    if (words)
-		    {
-		        var lastWord = words[words.length - 1];
-		        var candidates = [];
-		        if (lastWord)
-		        {
-		            var uid = model.uberId();
+		self.tryFillInTypedName = function() {
+			var words = self.messageLine().split(" ");
+			if (words) {
+				var lastWord = words[words.length - 1];
+				var candidates = [];
+				if (lastWord) {
+					var uid = model.uberId();
 
-		            for (var i = 0; i < self.sortedUsers().length; i++)
-		            {
-		                var roomUser = self.sortedUsers()[i];
+					for (var i = 0; i < self.sortedUsers().length; i++) {
+						var roomUser = self.sortedUsers()[i];
 
-		                if (roomUser.uberId() == uid)
-		                {
-		                    continue;
-		                }
+						if (roomUser.uberId() == uid) {
+							continue;
+						}
 
-		                var name = roomUser.roomDisplayName();
+						var name = roomUser.roomDisplayName();
 
-		                if (name.toLowerCase().indexOf(lastWord.toLowerCase()) !== -1)
-		                {
-		                    candidates.push(name);
-		                }
-		            }
-		        }
+						if (name.toLowerCase().indexOf(lastWord.toLowerCase()) !== -1) {
+							candidates.push(name);
+						}
+					}
+				}
 
-		        candidates = _.uniq(candidates, false);
+				candidates = _.uniq(candidates, false);
 
-		        if (candidates.length === 1)
-		        {
-		            self.messageLine(self.messageLine().slice(0, self.messageLine().length - lastWord.length) + candidates[0]);
-		        }
-		        else if (candidates.length > 1)
-		        {
-		            var lst = "";
-		            for (var i = 0; i < candidates.length; i++)
-		            {
-		                lst += candidates[i] + " ";
-		            }
-		            self.writeSystemMessage(lst);
-		        }
-		    }
+				if (candidates.length === 1) {
+					self.messageLine(self.messageLine().slice(0, self.messageLine().length - lastWord.length)
+							+ candidates[0]);
+				} else if (candidates.length > 1) {
+					var lst = "";
+					for (var i = 0; i < candidates.length; i++) {
+						lst += candidates[i] + " ";
+					}
+					self.writeSystemMessage(lst);
+				}
+			}
 		};
 
 		self.inputKeyDown = function(s, event) {
@@ -938,310 +930,232 @@ console.log( 'acceptFriendRequest' );
 			}
 		};
 
-// apply to all handles and logins
+		// apply to all handles and logins
+		self.mute = function(displayName, reason) {
+			var handles = self.displayNameHandleMap()[displayName];
+			if (handles) {
+				_.forEach(handles, function(jid, handle) {
+					console.log('mute ' + handle + ' reason ' + reason);
+					jabber.muteUser(self.roomName(), handle, reason);
+				});
+			} else {
+				self.writeSystemMessage(displayName + ' not found');
+			}
+		}
 
-		self.mute = function(displayName, reason)
-		{
+		self.unmute = function(displayName, reason) {
+			var handles = self.displayNameHandleMap()[displayName];
+			if (handles) {
+				_.forEach(handles, function(jid, handle) {
+					console.log('unmute ' + handle);
+					jabber.unmuteUser(self.roomName(), handle, reason);
+				});
+			} else {
+				self.writeSystemMessage(displayName + ' not found');
+			}
+		}
 
-		    var handles = self.displayNameHandleMap()[displayName];
+		self.kick = function(displayName, reason) {
+			var handles = self.displayNameHandleMap()[displayName];
+			if (handles) {
+				_.forEach(handles, function(jid, handle) {
+					console.log('kick ' + handle);
+					jabber.kickUser(self.roomName(), handle, reason);
+				});
+			} else {
+				self.writeSystemMessage(displayName + ' not found');
+			}
+		}
 
-		    if (handles)
-		    {
-		        _.forEach(handles, function(jid, handle)
-		        {
-		            console.log('mute ' + handle + ' reason ' + reason);
+		self.ban = function(uberId, reason) {
+			console.log('ban uberId ' + uberId + ' ' + reason);
+			jabber.banUser(self.roomName(), uberId, reason);
+		}
 
-		            jabber.muteUser(self.roomName(), handle, reason);
-
-		        });
-		    }
-		    else
-		    {
-		        self.writeSystemMessage(displayName + ' not found');
-		    }
+		self.unban = function(uberId, reason) {
+			console.log('unban uberId ' + uberId + ' ' + reason);
+			jabber.unbanUser(self.roomName(), uberId, reason);
 
 		}
 
-		self.unmute = function(displayName, reason)
-		{
+	} // end of ChatRoomModel
 
-		    var handles = self.displayNameHandleMap()[displayName];
+	// current users will never exist in users so create one
+	model.user = ko.observable();
 
-		    if (handles)
-		    {
-		        _.forEach(handles, function(jid, handle)
-		        {
-		            console.log('unmute ' + handle);
+	// removed users are for messages where the user is no longer online
+	function makeChatRoomUser(roomName, uberId, handle, admin, mod, muted, league, rank, jid, presenceType,
+			presenceStatus, removed) {
+		var user;
 
-		            jabber.unmuteUser(self.roomName(), handle, reason);
+		if (uberId == model.uberId()) {
+			user = model.user();
+		} else {
 
-		        });
-		    }
-		    else
-		    {
-		        self.writeSystemMessage(displayName + ' not found');
-		    }
+			model.maybeCreateNewContactWithId(uberId);
 
-		}
+			var user = model.idToContactMap()[uberId];
 
-		self.kick = function(displayName, reason)
-		{
-
-		    var handles = self.displayNameHandleMap()[displayName];
-
-		    if (handles)
-		    {
-		        _.forEach(handles, function(jid, handle)
-		        {
-		            console.log('kick ' + handle);
-
-		            jabber.kickUser(self.roomName(), handle, reason);
-
-		        });
-		    }
-		    else
-		    {
-		        self.writeSystemMessage(displayName + ' not found');
-		    }
+			if (!user) {
+				console.log('PANIC THERE IS NO USER');
+				debugger;
+			}
 
 		}
 
-		self.ban = function(uberId, reason)
-		{
+		user.league(league);
+		user.rank(rank);
 
-		    console.log('ban uberId ' + uberId + ' ' + reason);
+		var chatUser = new RoomExtendedUserViewModel(user, roomName, uberId, handle, admin, mod, muted, jid,
+				presenceType, presenceStatus, removed)
 
-		    jabber.banUser(self.roomName(), uberId, reason);
+		return chatUser;
+	}
 
-		}
+	// safer version
 
-		self.unban = function(uberId, reason)
-		{
+	model.hackFixFriends = function() {
+		var myUberId = model.uberId();
 
-		    console.log('unban uberId ' + uberId + ' ' + reason);
+		_.forEach(jabber.roster(), function(jid) {
+			var uberId = jid.split('@')[0];
 
-		    jabber.unbanUser(self.roomName(), uberId, reason);
+			if (uberId != myUberId) {
+				console.log(uberId);
 
-		}
+				model.maybeCreateNewContactWithId(uberId);
+				model.addUserTags(uberId, [ 'FRIEND' ]);
 
-  }
-
-// end of ChatRoomModel
-
-// current users will never exist in users so create one
-
-  model.user = ko.observable();
-  
-// removed users are for messages where the user is no longer online
-
-	function makeChatRoomUser( roomName, uberId, handle, admin, mod, muted, league, rank, jid, presenceType, presenceStatus, removed )
-	{
-    var user;
-    
-    if ( uberId == model.uberId() )
-    {
-      user = model.user();
-    }
-    else
-    {
-
-  		model.maybeCreateNewContactWithId( uberId );
-  		
-  		var user = model.idToContactMap()[uberId];
-  		
-  if ( !user )
-  {
-    console.log( 'PANIC THERE IS NO USER' );
-    debugger;
-  }		
-      
-    }
-    
-    user.league( league );
-    user.rank( rank );
-    
-		var chatUser = new RoomExtendedUserViewModel( user, roomName, uberId, handle, admin, mod, muted, jid, presenceType, presenceStatus, removed )
-
-    return chatUser;
-
+				model.idToContactMap()[uberId].tags.notifySubscribers();
+			}
+		})
 	};
 
-	model.alignChatLeft = ko.observable().extend({ local: 'alignChatLeft' });
-
-// safer version
-
-	model.hackFixFriends = function()
-	{
-	    var myUberId = model.uberId();
-
-	    _.forEach(jabber.roster(), function(jid)
-	    {
-	        var uberId = jid.split('@')[0];
-
-	        if (uberId != myUberId)
-	        {
-	            console.log(uberId);
-
-	            model.maybeCreateNewContactWithId(uberId);
-	            model.addUserTags(uberId, ['FRIEND']);
-
-	            model.idToContactMap()[uberId].tags.notifySubscribers();
-	        }
-
-	    })
-	};
-	
 	var oldPresence = model.onPresence;
-	
-	model.onPresence = function( from, handle, uid, presenceType, presenceStatus, grpChat, roomName, userInfo, stati, jid)
-	{
 
-    try
-    {
-      
-   		if (grpChat)
-  		{
-  
-  			var isAdmin = userInfo.affiliation === "owner";
-  			var isModerator = userInfo.role === "moderator" || userInfo.affiliation === "admin";
-  			var isMuted = userInfo.role === "visitor";
-  
-  			var room = model.chatRoomMap()[roomName];
-  			
-  /*
-        if ( room && uid = model.uberId() && pt == 'unavailable' ) // kicked from room
-        {
-          room = false;
-        }
-  */
-        
-  // does room exist
-  
-  			if ( room )
-        {
-  
-          room.fromJidMap()[ from ] = jid; // keep a mapping of from to jid for real time messages
-          
-  				var roomUser = room.usersMap()[ jid ];
-  				
-  // remove if unavailable
-  
-          if ( uid !== model.uberId() && presenceType == "unavailable" && roomUser )
-          {
-            model.removeUserFromRoom(roomName, jid);
-          }
-          else
-  				{
-  
-  // otherwise update or add
-    				
-    				if ( roomUser )
-    				{
-  
-  console.log( 'Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName );
-  
-    					roomUser.isModerator(isModerator);
-    					roomUser.isAdmin(isAdmin);
-    					roomUser.isMuted(isMuted);
-    					roomUser.user.league( userInfo.league );
-    					roomUser.user.rank( userInfo.rank );
-    					roomUser.isRemoved( false );
-    					roomUser.jabberPresenceType( presenceType );
-    					roomUser.jabberPresenceStatus( presenceStatus );
-    				}
-    				else
-    				{
-    
-    				  var userModel = makeChatRoomUser( roomName, uid, handle, isAdmin, isModerator, isMuted, userInfo.league, userInfo.rank, jid, presenceType, presenceStatus, removed=false );
-    
-              model.insertUserIntoRoom(roomName, userModel );
-     
-            }
-  
-          }
-          
-  			}
-  
-  		}
-      else
-      {
-        oldPresence(uid, presenceType, presenceStatus );
-      }
-      
+	model.onPresence = function(from, handle, uid, presenceType, presenceStatus, grpChat, roomName, userInfo, stati,
+			jid) {
+		try {
+			if (grpChat) {
+
+				var isAdmin = userInfo.affiliation === "owner";
+				var isModerator = userInfo.role === "moderator" || userInfo.affiliation === "admin";
+				var isMuted = userInfo.role === "visitor";
+
+				var room = model.chatRoomMap()[roomName];
+
+				/*
+				 * if ( room && uid = model.uberId() && pt == 'unavailable' ) //
+				 * kicked from room { room = false; }
+				 */
+
+				// does room exist
+				if (room) {
+
+					room.fromJidMap()[from] = jid; // keep a mapping of from to
+													// jid for real time
+													// messages
+
+					var roomUser = room.usersMap()[jid];
+
+					// remove if unavailable
+
+					if (uid !== model.uberId() && presenceType == "unavailable" && roomUser) {
+						model.removeUserFromRoom(roomName, jid);
+					} else {
+
+						// otherwise update or add
+
+						if (roomUser) {
+
+							console.log('Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName);
+
+							roomUser.isModerator(isModerator);
+							roomUser.isAdmin(isAdmin);
+							roomUser.isMuted(isMuted);
+							roomUser.user.league(userInfo.league);
+							roomUser.user.rank(userInfo.rank);
+							roomUser.isRemoved(false);
+							roomUser.jabberPresenceType(presenceType);
+							roomUser.jabberPresenceStatus(presenceStatus);
+						} else {
+
+							var userModel = makeChatRoomUser(roomName, uid, handle, isAdmin, isModerator, isMuted,
+									userInfo.league, userInfo.rank, jid, presenceType, presenceStatus, removed = false);
+
+							model.insertUserIntoRoom(roomName, userModel);
+
+						}
+
+					}
+
+				}
+
+			} else {
+				oldPresence(uid, presenceType, presenceStatus);
+			}
+		} catch (e) {
+			console.log(e);
 		}
-		catch ( e )
-		{
-      console.log( e );
-    }
 	};
 
 	var notifyPlayer = function() {
 		api.game.outOfGameNotification("");
 		api.Panel.message("options_bar", "alertSocial");
 	};
-	
-	model.onGrpChat = function(roomName, handle, from, uberId, stati, content, timestamp, jid, systemMessage )
-	{
-    
-    if ( systemMessage )
-    {
-      if ( content != 'This room is not anonymous' )
-      {
-          console.log( content );
-      }
-      return; // ignore for now
-    }
-    
-    var roomUser;
-    
-		var room = model.chatRoomMap()[ roomName ];
-		
-		if ( !room )
-		{
-console.log( roomName + ' not found for message from ' + handle + ": " + content );
-      return;	
-    }
-      		
-		if ( !jid )
-		{
-  		jid = room.fromJidMap()[ from ];
-  		
-      if ( !jid )
-      {
-console.log( 'No jid for ' + from + ' in ' + roomName );
-      }
+
+	model.onGrpChat = function(roomName, handle, from, uberId, stati, content, timestamp, jid, systemMessage) {
+		if (systemMessage) {
+			if (content != 'This room is not anonymous') {
+				console.log(content);
+			}
+			return; // ignore for now
 		}
-		
-		roomUser = room.usersMap()[ jid ];
-		
-    if ( roomUser )
-    {
-      displayName = roomUser.roomDisplayName();
-      room.messageJidMap()[ jid ] = from; // record that jid is used by a message 
-    }
-    else
-    {
-console.log( 'No online user for historical message with jid ' + jid + ' in ' + roomName );
 
-// user for message if offline so we create a removed user and if they come back online it will be updated
+		var roomUser;
 
-  	  roomUser = makeChatRoomUser( roomName, uberId, handle, isAdmin=false, isModerator=false, isMuted=false, league='', rank='', jid, 'unavailable', undefined, removed=true );
-  
-      model.insertUserIntoRoom(roomName, roomUser );
+		var room = model.chatRoomMap()[roomName];
 
-    }
+		if (!room) {
+			console.log(roomName + ' not found for message from ' + handle + ": " + content);
+			return;
+		}
 
-		model.insertMessageIntoRoom(roomName,
-		{
-			handle: handle,
-			jid: jid,
-			roomUser: roomUser,
-			content: content,
-			time: timestamp 
+		if (!jid) {
+			jid = room.fromJidMap()[from];
+
+			if (!jid) {
+				console.log('No jid for ' + from + ' in ' + roomName);
+			}
+		}
+
+		roomUser = room.usersMap()[jid];
+
+		if (roomUser) {
+			displayName = roomUser.roomDisplayName();
+			room.messageJidMap()[jid] = from; // record that jid is used by a
+												// message
+		} else {
+			console.log('No online user for historical message with jid ' + jid + ' in ' + roomName);
+
+			// user for message if offline so we create a removed user and if
+			// they come back online it will be updated
+
+			roomUser = makeChatRoomUser(roomName, uberId, handle, isAdmin = false, isModerator = false,
+					isMuted = false, league = '', rank = '', jid, 'unavailable', undefined, removed = true);
+
+			model.insertUserIntoRoom(roomName, roomUser);
+		}
+
+		model.insertMessageIntoRoom(roomName, {
+			handle : handle,
+			jid : jid,
+			roomUser : roomUser,
+			content : content,
+			time : timestamp
 		});
-		
-  };
-  
+	};
+
 	model.conversations.subscribe(function(c) {
 		notifyPlayer();
 		for (var i = 0; i < c.length; i++) {
@@ -1253,498 +1167,391 @@ console.log( 'No online user for historical message with jid ' + jid + ' in ' + 
 			}
 		}
 	});
-	
+
 	var oldSetup = model.setup;
 	model.setup = function() {
-		// prevent the default code from killing scrolling
-		var scrollW = window.onmousewheel;
-		var scrollD = document.onmousewheel;
 		oldSetup();
-		window.onmousewheel = scrollW;
-		document.onmousewheel = scrollD;
 		if (decode(sessionStorage['restore_jabber'])) {
 			jabber.setGrpMsgHandler(model.onGrpChat);
 		}
 	};
 
-	model.getRank = function(callback)
-	{
+	model.getRank = function(callback) {
+		console.log('getRank');
 
-console.log( 'getRank' );
+		engine.asyncCall('ubernet.getPlayerRating', 'Ladder1v1').done(function(data) {
+			try {
+				var d = JSON.parse(data);
+				model.user().league(d.Rating)
+				model.user().rank(d.LeaderboardPosition > 0 ? (d.LeaderboardPosition + "") : "Inactive");
+			} catch (e) {
+				console.log("failed to get player rank!");
+				console.log(e);
+			} finally {
+				if (callback) {
+					callback();
+				}
+			}
+		}).fail(function(data) {
+			console.log("hard fail to get player rank");
+			console.log(data);
 
-	    engine.asyncCall('ubernet.getPlayerRating', 'Ladder1v1').done(function(data)
-	    {
-	        try
-	        {
-	            var d = JSON.parse(data);
-	            model.user().league(d.Rating)
-	            model.user().rank(d.LeaderboardPosition > 0 ? (d.LeaderboardPosition + "") : "Inactive");
-	        }
-	        catch (e)
-	        {
-	            console.log("failed to get player rank!");
-	            console.log(e);
-	        }
-	        finally
-	        {
-	            if (callback)
-	            {
-	                callback();
-	            }
-	        }
-	    }).fail(function(data)
-	    {
-	        console.log("hard fail to get player rank");
-	        console.log(data);
-
-	        if (callback)
-	        {
-	            callback();
-	        }
-	    });
+			if (callback) {
+				callback();
+			}
+		});
 	};
-	
-	model.updateRoomInfo = function()
-	{
- 
-console.log( 'updateRoomInfo' );
 
-    if ( !jabber )
-    {
-      return;
-    }
+	model.updateRoomInfo = function() {
+		console.log('updateRoomInfo');
 
- 	 var presenceType = model.jabberPresenceType();
-  	  
-    _.forEach( model.chatRooms(), function( room )
-    {
-    	jabber.setChannelPresence( room.roomName(), presenceType, model.user().league(), model.user().rank() );
-    });
+		if (!jabber) {
+			return;
+		}
+
+		var presenceType = model.jabberPresenceType();
+
+		_.forEach(model.chatRooms(), function(room) {
+			jabber.setChannelPresence(room.roomName(), presenceType, model.user().league(), model.user().rank());
+		});
 	}
 
-	model.showUberBar.subscribe( function( visible )
-	{
+	model.showUberBar.subscribe(function(visible) {
+		console.log('showUberBar ' + (visible ? 'yes' : 'no'));
 
-console.log( 'showUberBar ' + ( visible ? 'yes' : 'no' ) );
+		if (!jabber) {
+			return;
+		}
 
-    if ( !jabber )
-    {
-      return;
-    }
-    
-     model.jabberPresenceType( visible ? "available" : "dnd" );
+		model.jabberPresenceType(visible ? "available" : "dnd");
 
-    _.forEach( model.chatRooms(), function( room )
-    {
-    	room.scrollDown();
-    });
-	    
+		_.forEach(model.chatRooms(), function(room) {
+			room.scrollDown();
+		});
+
 	});
 
-	model.jabberPresenceType.subscribe( function( presenceType )
-	{
-	    model.getRank( model.updateRoomInfo );
-
+	model.jabberPresenceType.subscribe(function(presenceType) {
+		model.getRank(model.updateRoomInfo);
 	});
 
 	var oldJabberAuth = handlers.jabber_authentication;
 
-	handlers.jabber_authentication = function(payload)
-	{
+	handlers.jabber_authentication = function(payload) {
+		// this is our user that will be used in rooms
+		model.user = ko.observable(new ExtendedUserViewModel(model.uberId()));
 
-	    // this is our user that will be used in rooms
+		model.displayName.subscribe(function(name) {
+			model.user().displayName(name);
+		});
 
-	    model.user = ko.observable(new ExtendedUserViewModel(model.uberId()));
+		oldJabberAuth(payload);
 
-	    model.displayName.subscribe(function(name)
-	    {
-	        model.user().displayName(name);
-	    });
-
-	    oldJabberAuth(payload);
-
-	    jabber.setGrpMsgHandler(model.onGrpChat);
-	    jabber.setResultMsgHandler(model.onResultMsg);
-	    jabber.setErrorMsgHandler(model.onErrorMsg);
-	    jabber.setConnectHandler(function()
-	    {
-	        model.getRank(function()
-	        {
-	            if (!decode(localStorage["info.nanodesu.pachat.disablechat"]))
-	            {
-	                model.joinChatRoom("halcyon");
-	            }
-	        });
-	    });
+		jabber.setGrpMsgHandler(model.onGrpChat);
+		jabber.setResultMsgHandler(model.onResultMsg);
+		jabber.setErrorMsgHandler(model.onErrorMsg);
+		jabber.setConnectHandler(function() {
+			model.getRank(function() {
+				if (!decode(localStorage["info.nanodesu.pachat.disablechat"])) {
+					model.joinChatRoom("halcyon");
+				}
+			});
+		});
 
 	};
 
-// need to check this and improve messages
-	
-	model.onErrorMsg = function(roomName, action, errorObj)
-	{
-	    if (action.startsWith('showlisting_'))
-	    { //non standard handlers here
-	        getOrCreateRoom(roomName).writeSystemMessage(action + " " + errorObj.explanation);
-	    }
-	    else
-	    {
-	        getOrCreateRoom(roomName).writeSystemMessage(action + ' ' + (errorObj.roomUser ? errorObj.roomUser.displayName() : 'unknown') + ' (' + errorObj.explanation + ')');
-	    }
+	// need to check this and improve messages
+
+	model.onErrorMsg = function(roomName, action, errorObj) {
+		if (action.startsWith('showlisting_')) { // non standard handlers
+													// here
+			getOrCreateRoom(roomName).writeSystemMessage(action + " " + errorObj.explanation);
+		} else {
+			getOrCreateRoom(roomName).writeSystemMessage(
+					action + ' ' + (errorObj.roomUser ? errorObj.roomUser.displayName() : 'unknown') + ' ('
+							+ errorObj.explanation + ')');
+		}
 	};
-	
+
 	var resultCount;
 	var resultType;
 	var resultObj;
 	var resultRoom;
 	var resultAction;
-	
-	model.onResultMsg = function (roomName, action, resObj) {
+
+	model.onResultMsg = function(roomName, action, resObj) {
 		resultType = action;
 		resultObj = resObj;
 		resultRoom = roomName;
-		
+
 		self.resuObj = resultObj;
-		
+
 		if (action.startsWith("showlisting_")) {
 			resultAction = action;
 			resultCount = resultObj.length;
 
-// use the new ExtendedUserViewModel
+			// use the new ExtendedUserViewModel
 
-			for (var i = 0; i < resultObj.length; i++)
-			{
+			for (var i = 0; i < resultObj.length; i++) {
 
-			    var roomUser = new ExtendedUserViewModel(resultObj[i].uberId);
+				var roomUser = new ExtendedUserViewModel(resultObj[i].uberId);
 
-			    resultObj[i].roomUser = roomUser;
+				resultObj[i].roomUser = roomUser;
 
-			    if (roomUser.hasName())
-			    {
-			        resultCount--;
-			    }
-			    else
-			    {
-			        resultObj[i].roomUser.hasName.subscribe(model.onResultDataReceived);
-			    }
+				if (roomUser.hasName()) {
+					resultCount--;
+				} else {
+					resultObj[i].roomUser.hasName.subscribe(model.onResultDataReceived);
+				}
 			}
 
 			if (resultCount === 0) {
 				model.onResultDataComplete();
 			}
 		} else {
-			getOrCreateRoom(roomName).writeSystemMessage('Successfully ' + action + ' ' + (resObj.roomUser ? resObj.roomUser.displayName() : 'unknown') + (resObj.reason ? ' for ' + resObj.reason : ''));
+			getOrCreateRoom(roomName).writeSystemMessage(
+					'Successfully ' + action + ' ' + (resObj.roomUser ? resObj.roomUser.displayName() : 'unknown')
+							+ (resObj.reason ? ' for ' + resObj.reason : ''));
 		}
 	};
-	
+
 	model.onResultDataReceived = function(data) {
 		resultCount--;
-		
+
 		if (resultCount === 0) {
 			model.onResultDataComplete();
 		}
 	};
-	
-	model.onResultDataComplete = function () {	
+
+	model.onResultDataComplete = function() {
 		var room = getOrCreateRoom(resultRoom);
 		room.bannedUsers(resultObj);
 
-		room.writeSystemMessage("Users for "+resultAction);
-		
+		room.writeSystemMessage("Users for " + resultAction);
+
 		for (var i = 0; i < resultObj.length; i++) {
-			room.writeSystemMessage(resultObj[i].roomUser.displayName() + (resultObj[i].reason ? ' : ' + resultObj[i].reason : '' ));
+			room.writeSystemMessage(resultObj[i].roomUser.displayName()
+					+ (resultObj[i].reason ? ' : ' + resultObj[i].reason : ''));
 		}
 		room.writeSystemMessage("End of users");
 	};
 
-//
+	model.show24HourTime = ko.observable(true).extend({
+		local : 'show24HourTime'
+	});
 
-  model.show24HourTime = ko.observable( true ).extend( { local : 'show24HourTime' } );
+	model.toggle24HourTime = function() {
+		model.show24HourTime(!model.show24HourTime());
+	}
 
-  model.toggle24HourTime = function()
-  {
-      model.show24HourTime(!model.show24HourTime());
-  }
-  
-  model.formatTime = function(date, showSeconds)
-  {
-      var options = {
-          hour: 'numeric',
-          minute: 'numeric',
-          hour12: !model.show24HourTime()
-      };
-  
-      if (showSeconds)
-      {
-          options.second = 'numeric';
-      }
-  
-      var result;
-  
-      try
-      {
-          result = date.toLocaleTimeString(decode(localStorage.locale), options);
-      }
-      catch (e)
-      {
-          console.log(e);
-  
-          result = date.toLocaleTimeString('en', options);
-      }
-  
-      return result;
-  
-  }
-  
+	model.formatTime = function(date, showSeconds) {
+		var options = {
+			hour : 'numeric',
+			minute : 'numeric',
+			hour12 : !model.show24HourTime()
+		};
+
+		if (showSeconds) {
+			options.second = 'numeric';
+		}
+
+		var result;
+
+		try {
+			result = date.toLocaleTimeString(decode(localStorage.locale), options);
+		} catch (e) {
+			console.log(e);
+			result = date.toLocaleTimeString('en', options);
+		}
+
+		return result;
+	};
+
 	model.chatRoomMap = ko.observable({/* roomName: ChatRoomModel */});
 	model.chatRooms = ko.computed(function() {
 		return _.values(model.chatRoomMap());
 	});
 
-	var createRoom = function(roomName)
-	    {
-	        var room = model.chatRoomMap()[roomName];
-	        if (!room)
-	        {
-	            model.chatRoomMap()[roomName] = new ChatRoomModel(roomName);
-	            model.chatRoomMap.notifySubscribers();
-	            room = model.chatRoomMap()[roomName];
-	            room.scrollDown();
-	        }
-	        return room;
-	    };
-
-	var getOrCreateRoom = function(roomName)
-	    {
-
-	        var room = model.chatRoomMap()[roomName];
-	        
-	        if (!room)
-	        {
-	            model.chatRoomMap()[roomName] = new ChatRoomModel(roomName);
-	            model.chatRoomMap.notifySubscribers();
-	            room = model.chatRoomMap()[roomName];
-	            room.scrollDown();
-	        }
-
-	        jabber.setChannelPresence(roomName, jabber.presenceType(), model.user().league(), model.user().rank());
-
-	        return room;
-
-	    };
-
-	model.insertUserIntoRoom = function(roomName, roomUser)
-	{
-
-	    var room = model.chatRoomMap()[roomName];
-
-	    if (!room)
-	    {
-	        console.log('No room ' + roomName + ' to add ' + roomUser.displayInfo());
-	        return;
-	    }
-
-	    room.usersMap()[roomUser.jid()] = roomUser;
-	    room.usersMap.notifySubscribers();
+	var createRoom = function(roomName) {
+		var room = model.chatRoomMap()[roomName];
+		if (!room) {
+			model.chatRoomMap()[roomName] = new ChatRoomModel(roomName);
+			model.chatRoomMap.notifySubscribers();
+			room = model.chatRoomMap()[roomName];
+			room.scrollDown();
+		}
+		return room;
 	};
 
-	model.removeUserFromRoom = function(roomName, jid)
-	{
-	    var room = model.chatRoomMap()[roomName];
+	var getOrCreateRoom = function(roomName) {
+		var room = model.chatRoomMap()[roomName];
 
-	    if (!room)
-	    {
-	        console.log('No room ' + roomName + ' to remove ' + jid);
-	        return;
-	    }
+		if (!room) {
+			model.chatRoomMap()[roomName] = new ChatRoomModel(roomName);
+			model.chatRoomMap.notifySubscribers();
+			room = model.chatRoomMap()[roomName];
+			room.scrollDown();
+		}
 
-	    var roomUser = room.usersMap()[jid];
+		jabber.setChannelPresence(roomName, jabber.presenceType(), model.user().league(), model.user().rank());
 
-	    if (!roomUser)
-	    {
-	        console.log('No user in ' + roomName + ' to remove ' + jid);
-	        return;
-	    }
+		return room;
 
-	    var usedByMessage = room.messageJidMap()[jid];
-
-	    if (usedByMessage)
-	    {
-	        console.log('Marking ' + jid + ' (' + roomUser.displayInfo() + ') as removed in ' + roomName);
-	        roomUser.isRemoved(true);
-	    }
-	    else
-	    {
-	        console.log('Removing ' + jid + ' (' + roomUser.displayInfo() + ') from ' + roomName);
-	        delete room.usersMap()[jid];
-	    }
-
-	    room.usersMap.notifySubscribers();
 	};
 
-	model.insertMessageIntoRoom = function(roomName, message)
-	{
+	model.insertUserIntoRoom = function(roomName, roomUser) {
+		var room = model.chatRoomMap()[roomName];
 
-	    getOrCreateRoom(roomName).addMessage(message);
+		if (!room) {
+			console.log('No room ' + roomName + ' to add ' + roomUser.displayInfo());
+			return;
+		}
+
+		room.usersMap()[roomUser.jid()] = roomUser;
+		room.usersMap.notifySubscribers();
 	};
-	
-	model.joinChatRoom = function(roomName)
-	{
 
-	    // open the room first and defer join so we dont miss anything
-	    
-	    var room = model.chatRoomMap()[roomName];
+	model.removeUserFromRoom = function(roomName, jid) {
+		var room = model.chatRoomMap()[roomName];
 
-	    if (room)
-	    {
-	        room.minimized(false);
-	    }
-	    else
-	    {
-	        room = createRoom(roomName); // create the room before joining
-	        
-	        room.minimized(roomName == 'halcyon');
+		if (!room) {
+			console.log('No room ' + roomName + ' to remove ' + jid);
+			return;
+		}
 
-	        // room handle should be unique for each client and we could make the handle the uberId
-	        _.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), model.user().displayName());
-	    }
+		var roomUser = room.usersMap()[jid];
+
+		if (!roomUser) {
+			console.log('No user in ' + roomName + ' to remove ' + jid);
+			return;
+		}
+
+		var usedByMessage = room.messageJidMap()[jid];
+
+		if (usedByMessage) {
+			console.log('Marking ' + jid + ' (' + roomUser.displayInfo() + ') as removed in ' + roomName);
+			roomUser.isRemoved(true);
+		} else {
+			console.log('Removing ' + jid + ' (' + roomUser.displayInfo() + ') from ' + roomName);
+			delete room.usersMap()[jid];
+		}
+
+		room.usersMap.notifySubscribers();
 	};
-	
+
+	model.insertMessageIntoRoom = function(roomName, message) {
+		getOrCreateRoom(roomName).addMessage(message);
+	};
+
+	model.joinChatRoom = function(roomName) {
+		// open the room first and defer join so we dont miss anything
+
+		var room = model.chatRoomMap()[roomName];
+
+		if (room) {
+			room.minimized(false);
+		} else {
+			room = createRoom(roomName); // create the room before joining
+
+			room.minimized(roomName == 'halcyon');
+
+			// room handle should be unique for each client and we could make
+			// the handle the uberId
+			_.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), model.user()
+					.displayName());
+		}
+	};
+
 	model.leaveRoom = function(roomName) {
 		var room = model.chatRoomMap()[roomName];
 		if (room) {
 			jabber.leaveGroupChat(room.roomName());
 		}
-    delete model.chatRoomMap()[roomName];
+		delete model.chatRoomMap()[roomName];
 		model.chatRoomMap.notifySubscribers();
 	}
-		
-  model.hideContextMenu = function()
-  {
-        
-    var menu = $("#roomContextMenu");
-    if (menu)
-        menu.hide();
-        
-    var menu = $("#contextMenu");
-    if (menu)
-        menu.hide();
- 
-  }
-  
+
+	model.hideContextMenu = function() {
+		var menu = $("#roomContextMenu");
+		if (menu) {
+			menu.hide();
+		}
+			
+		var menu = $("#contextMenu");
+		if (menu) {
+			menu.hide();
+		}
+	}
+
 	model.joinChannelName = ko.observable('');
 
 	model.selectedRoom = ko.observable(undefined);
-	
-	model.selectedRoomUser = ko.observable(undefined);
-  
-	model.showRoomContextMenu = function( room, event )
-	{
-  	
-  	var roomUser = this;
-  	
-    model.hideContextMenu();
-    
-  	if ( roomUser.uberId() == model.uberId() )
-  	{
-    	return false;
-  	}
-  	
-		model.selectedRoom( room );
-		model.selectedRoomUser( roomUser );
-			
-    $("#roomContextMenu").css(
-    {
-        display: 'block',
-        left: event.pageX,
-        top: event.pageY
-    });
 
+	model.selectedRoomUser = ko.observable(undefined);
+
+	model.showRoomContextMenu = function(room, event) {
+		var roomUser = this;
+		model.hideContextMenu();
+		if (roomUser.uberId() == model.uberId()) {
+			return false;
+		}
+
+		model.selectedRoom(room);
+		model.selectedRoomUser(roomUser);
+
+		$("#roomContextMenu").css({
+			display : 'block',
+			left : event.pageX,
+			top : event.pageY
+		});
+
+		var ctxMenu = $('#roomContextMenu > .dropdown-menu');
+		// fix the context menu staying hidden if you open it on a user very low
+		// on the screen
+		var bottomMissingSpace = ctxMenu.offset().top - $(window).height() + ctxMenu.height() + 5;
+		if (bottomMissingSpace > 0) {
+			ctxMenu.css("top", ctxMenu.position().top - bottomMissingSpace);
+		}
 	};
 
-  model.roomContextMenuClick = function( room, action )
-  {
-    
-    var roomUser = this;
-
-		model.selectedRoom( undefined );
-		model.selectedRoomUser( undefined );
-    
-    switch ( action )
-    {
-      case 'startChat':
-      
-        roomUser.user.startChat();
-        
-        break;
-
-      case 'sendFriendRequest':
-      
-        roomUser.user.sendFriendRequest();
-        
-        break;
-
-      case 'sendChatInvite':
-      
-        roomUser.user.sendChatInvite();
-        
-        break;
-
-      case 'sendUnfriend':
-      
-        roomUser.user.sendUnfriend();
-        
-        break;
-
-      case 'block':
-      
-        roomUser.user.block();
-        
-        break;
-
-      case 'unblock':
-      
-        roomUser.user.unblock();
-        
-        break;
-
-      case 'mute':
-      
-        room.mute( roomUser.roomDisplayName(), model.displayName() )
-        
-        break;
-
-      case 'unmute':
-      
-        room.unmute( roomUser.roomDisplayName(), model.displayName() )
-        
-        break;
-        
-      case 'kick':
-      
-        room.kick( roomUser.roomDisplayName(), model.displayName() )
-        
-        break;
-
-    }  		
-    			
+	model.roomContextMenuClick = function(room, action) {
+		var roomUser = this;
+		model.selectedRoom(undefined);
+		model.selectedRoomUser(undefined);
+		switch (action) {
+		case 'startChat':
+			roomUser.user.startChat();
+			break;
+		case 'sendFriendRequest':
+			roomUser.user.sendFriendRequest();
+			break;
+		case 'sendChatInvite':
+			roomUser.user.sendChatInvite();
+			break;
+		case 'sendUnfriend':
+			roomUser.user.sendUnfriend();
+			break;
+		case 'block':
+			roomUser.user.block();
+			break;
+		case 'unblock':
+			roomUser.user.unblock();
+			break;
+		case 'mute':
+			room.mute(roomUser.roomDisplayName(), model.displayName())
+			break;
+		case 'unmute':
+			room.unmute(roomUser.roomDisplayName(), model.displayName())
+			break;
+		case 'kick':
+			room.kick(roomUser.roomDisplayName(), model.displayName())
+			break;
+		}
 	}
 
-	var joinHtmlSnip = multiLines(function(){/*!
-	
-<div class="div-seach-cont" style="padding: 1px">
-    <form data-bind="submit: function () { model.joinChatRoom(model.joinChannelName()); model.joinChannelName(''); }">
-        <input type="text" style="width: 100%;" placeholder="Join Chatroom (try halcyon)" value="" class="input_text input_chat_text" data-bind="value: joinChannelName" />
-    </form>
-</div>
-
-*/});
-
-	$('.div-seach-cont').parent().append(joinHtmlSnip);
-	
-	$('#social-wrapper').prepend( loadHtml( paStatsBaseDir + 'pachat/room_context_menu.html' ) );
-	$('#social-wrapper div.chat-wrapper').append( loadHtml( paStatsBaseDir + 'pachat/rooms.html' ) );
-	
-	$('.div-social-canvas > .chat-wrapper').attr("data-bind", "style: {'justify-content': model.alignChatLeft() ? 'flex-start' : 'flex-end'}");
-	
+	$('.div-seach-cont').parent().append(loadHtml(modBaseDir + "pachat/join_room.html"));
+	$('#social-wrapper').prepend(loadHtml(modBaseDir + 'pachat/room_context_menu.html'));
+	$('#social-wrapper div.chat-wrapper').append(loadHtml(modBaseDir + 'pachat/rooms.html'));
+	$('.div-social-canvas > .chat-wrapper').attr("data-bind",
+			"style: {'justify-content': model.alignChatLeft() ? 'flex-start' : 'flex-end'}");
 }());
