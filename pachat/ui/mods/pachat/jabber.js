@@ -633,7 +633,6 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	function onPresence(message)
 	{
 	    log("onPresence");
-
 	    try
 	    {
 	        var type = $(message).attr('type');
@@ -677,20 +676,23 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	        else
 	        {
 
-	            var uid = JidToUberid(from);
-	            var chatRoom = undefined;
+	            var uid;
+	            var roomName;
 	            var userinfo = {};
 	            var stati = [];
-	            var jid = undefined;
-
-	            // handle is everything after the first /
-	            var pos = from.indexOf('/');
-
-	            var handle = pos == -1 ? '' : from.slice(pos + 1);
+	            var jid;
 
 	            if (isGrpChat)
 	            {
 
+    	            // handle is everything after the first /
+    	            var pos = from.indexOf('/');
+    
+    	            var handle = pos == -1 ? '' : from.slice(pos + 1);
+
+                  // roomName is everything before the @
+    	            var roomName = from.split('@')[0];
+    
 	                if (!type)
 	                {
 	                    var show = message.getElementsByTagName("show");
@@ -700,7 +702,6 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	                    };
 	                }
 
-	                chatRoom = uid; // for grp chats the name of the room is in front of the @conference.xmpp....
 	                userinfo.league = $(message).attr('league');
 	                userinfo.rank = $(message).attr('rank');
 
@@ -744,8 +745,11 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	                    }
 	                }
 	            }
-
-	            paPresenceHandler(from, handle, uid, type || 'available', status, isGrpChat, chatRoom, userinfo, stati, jid);
+              else {
+                jid = from;
+  	            uid = JidToUberid(from);
+              }
+	            paPresenceHandler(from, handle, uid, type || 'available', status, isGrpChat, roomName, userinfo, stati, jid);
 
 	            // PA CHAT
 	        }
@@ -756,10 +760,13 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	    catch (e)
 	    {
 	        console.log('!!!PRESENCE error:' + e);
+	        if (paLobby.dev)
+	        {
+	            debugger;
+	        }
 	        return true;
 	    }
 	};
-
 
 	function onRoster(message) {
 		log("onRoster");

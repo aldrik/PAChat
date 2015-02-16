@@ -975,9 +975,30 @@
 		self.unban = function(uberId, reason) {
 			console.log('unban uberId ' + uberId + ' ' + reason);
 			jabber.unbanUser(self.roomName(), uberId, reason);
-
 		}
 
+  	self.removeUser = function(jid) {
+
+  		var roomUser = self.usersMap()[jid];
+  
+  		if (!roomUser) {
+  			console.log('No user in ' + self.roomName() + ' to remove ' + jid);
+  			return;
+  		}
+  
+  		var usedByMessage = self.messageJidMap()[jid];
+  
+  		if (usedByMessage) {
+  			console.log('Marking ' + jid + ' (' + roomUser.displayInfo() + ') as removed in ' + roomName);
+  			roomUser.isRemoved(true);
+  		} else {
+  			console.log('Removing ' + jid + ' (' + roomUser.displayInfo() + ') from ' + roomName);
+  			delete self.usersMap()[jid];
+  		}
+  
+  		self.usersMap.notifySubscribers();
+  	};
+  	
 	} // end of ChatRoomModel
 
 	// current users will never exist in users so create one
@@ -1038,16 +1059,13 @@
 		try {
 			if (grpChat) {
 
+// room level presence
+
 				var isAdmin = userInfo.affiliation === "owner";
 				var isModerator = userInfo.role === "moderator" || userInfo.affiliation === "admin";
 				var isMuted = userInfo.role === "visitor";
 
 				var room = model.chatRoomMap()[roomName];
-
-				/*
-				 * if ( room && uid = model.uberId() && pt == 'unavailable' ) //
-				 * kicked from room { room = false; }
-				 */
 
 				// does room exist
 				if (room) {
@@ -1060,8 +1078,19 @@
 
 					// remove if unavailable
 
-					if (uid !== model.uberId() && presenceType == "unavailable" && roomUser) {
-						model.removeUserFromRoom(roomName, jid);
+					if ( presenceType == "unavailable" ) {
+						if ( roomUser ) {
+  						room.removeUser(jid);
+						}
+						if ( jid == jabber.jid() ) {
+							
+							if ( _.indexOf( stati, '307' ) != -1 ) {
+								room.writeSystemMessage( 'Kicked' );
+							}
+							else if ( _.indexOf( stati, '301' ) != -1 ) {
+								room.writeSystemMessage( 'Banned' );
+							}
+            }
 					} else {
 
 						// otherwise update or add
@@ -1073,17 +1102,21 @@
 							roomUser.isModerator(isModerator);
 							roomUser.isAdmin(isAdmin);
 							roomUser.isMuted(isMuted);
-							roomUser.user.league(userInfo.league);
-							roomUser.user.rank(userInfo.rank);
+							if ( userInfo.league ) {
+  							roomUser.user.league(userInfo.league);
+  						}
+							if ( userInfo.rank ) {
+  							roomUser.user.rank(userInfo.rank);
+  						}
 							roomUser.isRemoved(false);
 							roomUser.jabberPresenceType(presenceType);
 							roomUser.jabberPresenceStatus(presenceStatus);
 						} else {
 
-							var userModel = makeChatRoomUser(roomName, uid, handle, isAdmin, isModerator, isMuted,
+							var roomUser = makeChatRoomUser(roomName, uid, handle, isAdmin, isModerator, isMuted,
 									userInfo.league, userInfo.rank, jid, presenceType, presenceStatus, removed = false);
 
-							model.insertUserIntoRoom(roomName, userModel);
+							model.insertUserIntoRoom(roomName, roomUser);
 
 						}
 
@@ -1092,6 +1125,21 @@
 				}
 
 			} else {
+  			
+// update rooms with user level presence
+
+  			_.forEach( model.chatRooms(), function(room) {
+    			
+    			var roomUser = room.usersMap()[jid];
+    			if ( roomUser ) {
+  					if ( presenceType == "unavailable" ) {
+  						room.removeUser(jid);
+  					} else {
+        			roomUser.jabberPresenceType( presenceType );
+        			roomUser.jabberPresenceStatus( presenceStatus );
+  					}
+    			}
+  			});
 				oldPresence(uid, presenceType, presenceStatus);
 			}
 		} catch (e) {
@@ -1202,18 +1250,14 @@
 		});
 	};
 
-	model.updateRoomInfo = function() {
-		console.log('updateRoomInfo');
+	model.updatePresence = function() {
+		console.log('updatePresence');
 
 		if (!jabber) {
 			return;
 		}
 
-		var presenceType = model.jabberPresenceType();
-
-		_.forEach(model.chatRooms(), function(room) {
-			jabber.setChannelPresence(room.roomName(), presenceType, model.user().league(), model.user().rank());
-		});
+    jabber.presenceType(model.jabberPresenceType());
 	}
 
 	model.showUberBar.subscribe(function(visible) {
@@ -1232,7 +1276,7 @@
 	});
 
 	model.jabberPresenceType.subscribe(function(presenceType) {
-		model.getRank(model.updateRoomInfo);
+		model.getRank(model.updatePresence);
 	});
 
 	var oldJabberAuth = handlers.jabber_authentication;
@@ -1408,34 +1452,6 @@
 		}
 
 		room.usersMap()[roomUser.jid()] = roomUser;
-		room.usersMap.notifySubscribers();
-	};
-
-	model.removeUserFromRoom = function(roomName, jid) {
-		var room = model.chatRoomMap()[roomName];
-
-		if (!room) {
-			console.log('No room ' + roomName + ' to remove ' + jid);
-			return;
-		}
-
-		var roomUser = room.usersMap()[jid];
-
-		if (!roomUser) {
-			console.log('No user in ' + roomName + ' to remove ' + jid);
-			return;
-		}
-
-		var usedByMessage = room.messageJidMap()[jid];
-
-		if (usedByMessage) {
-			console.log('Marking ' + jid + ' (' + roomUser.displayInfo() + ') as removed in ' + roomName);
-			roomUser.isRemoved(true);
-		} else {
-			console.log('Removing ' + jid + ' (' + roomUser.displayInfo() + ') from ' + roomName);
-			delete room.usersMap()[jid];
-		}
-
 		room.usersMap.notifySubscribers();
 	};
 
