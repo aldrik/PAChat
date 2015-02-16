@@ -642,6 +642,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
             paGrpMsgHandler(room, handle, from, uberId, stati, content, timestamp, jid, systemMessage);
         } catch (e) {
             console.log(e);
+            console.log(e.stack);
         } finally {
             return true;
         }
@@ -757,6 +758,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
         // If the handler doesn't return true, it will be deleted
         catch (e) {
             console.log('!!!PRESENCE error:' + e);
+            console.log(e.stack);
             // disabled: where is paLobby.dev coming from?
             // if (paLobby.dev)
             // {
@@ -810,6 +812,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
         // If the handler doesn't return true, it will be deleted
         catch (e) {
             log('!!!IQ error:' + e);
+            log(e.stack);
             return true;
         } finally {
             nextRosterHandler = undefined;
@@ -837,6 +840,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
         // If the handler doesn't return true, it will be deleted
         catch (e) {
             log('!!!MESSAGE error:' + e);
+            log(e.stack);
             return true;
         }
     }
@@ -861,6 +865,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
         // If the handler doesn't return true, it will be deleted
         catch (e) {
             log('!!!MESSAGE error:' + e);
+            log(e.stack);
             return true;
         }
     }
