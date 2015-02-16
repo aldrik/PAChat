@@ -760,10 +760,11 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
 	    catch (e)
 	    {
 	        console.log('!!!PRESENCE error:' + e);
-	        if (paLobby.dev)
-	        {
-	            debugger;
-	        }
+	        // disabled: where is paLobby.dev coming from?
+//	        if (paLobby.dev)
+//	        {
+//	            debugger;
+//	        }
 	        return true;
 	    }
 	};
