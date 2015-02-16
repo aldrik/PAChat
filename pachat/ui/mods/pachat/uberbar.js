@@ -459,9 +459,6 @@
 			console.log("getIdOfBannedUser with "+bannedUserName);
 			var found = self.bannedUsers().filter(function(bannedUser) {
 				var user = bannedUser.roomUser;
-				console.log(user.displayName() + " vs " + bannedUserName);
-				console.log(bannedUser.uberId);
-				console.log(user.uberId());
 				return user.displayName() === bannedUserName;
 			});
 			return found.length > 0 ? found[0].uberId : undefined;
