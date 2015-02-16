@@ -355,19 +355,26 @@
 
 		self.isRemoved = ko.observable(removed);
 
-		self.nameColor = ko.computed(function() {
-			if (self.uberId() === model.uberId()) {
-				return model.ownColor();
-			} else if (!self.isModerator() && !self.isAdmin()) {
-				return model.otherColor();
-			} else if (self.isModerator() && !self.isAdmin()) {
+		self.roomColor = ko.computed(function() {
+			if (self.isModerator() && !self.isAdmin()) {
 				return model.modColor();
 			} else if (self.isAdmin()) {
 				return model.ownerColor();
 			} else if (self.isMuted()) {
 				return model.mutedColor();
-			} else if (self.isBlocked()) {
+			} else if (self.blocked()) {
 				return model.blockedColor();
+			} else {
+				return model.otherColor();
+			}
+		});
+		
+		self.chatMessageColor = ko.computed(function() {
+			if (!self.blocked() && !self.isMuted() &&
+					self.uberId() === model.uberId()) {
+				return model.ownColor();
+			} else {
+				return self.roomColor();
 			}
 		});
 
@@ -448,10 +455,14 @@
 
 		self.bannedUsers = ko.observable([]);
 
-		self.getIdOfBannedUser = function(displayname) {
+		self.getIdOfBannedUser = function(bannedUserName) {
+			console.log("getIdOfBannedUser with "+bannedUserName);
 			var found = self.bannedUsers().filter(function(bannedUser) {
 				var user = bannedUser.roomUser;
-				return user.displayName() === displayName;
+				console.log(user.displayName() + " vs " + bannedUserName);
+				console.log(bannedUser.uberId);
+				console.log(user.uberId());
+				return user.displayName() === bannedUserName;
 			});
 			return found.length > 0 ? found[0].uberId : undefined;
 		};
@@ -820,6 +831,7 @@
 				self.writeSystemMessage("Check out the modding forums PA Chat thread for more info on this chat.");
 				self.writeSystemMessage("In general when entering commands you can escape spaces with \\ if you want to end a parameter in \, use \\ for the last backspace");
 				self.writeSystemMessage("Admins are moderators by default, the moderator role is not persistent");
+				self.writeSystemMessage("Mute is not persistent as well. Use it like a warning. If a user rejoins to get rid of it, first mute them then ban them. This will hide all their messages and prevent them from joining again.");
 				self.writeSystemMessage("Try /help commands for a list of available commands, /help <command> for detailed info on one command.");
 			} else if (args[0] === 'commands') {
 				self.writeSystemMessage("Available commands are: " + commandList.join(', '));
@@ -1318,20 +1330,15 @@
 	var resultAction;
 
 	model.onResultMsg = function(roomName, action, resObj) {
-		resultType = action;
-		resultObj = resObj;
-		resultRoom = roomName;
-
-		self.resuObj = resultObj;
-
 		if (action.startsWith("showlisting_")) {
+			resultType = action;
+			resultObj = resObj;
+			resultRoom = roomName;
 			resultAction = action;
 			resultCount = resultObj.length;
 
-			// use the new ExtendedUserViewModel
-
 			for (var i = 0; i < resultObj.length; i++) {
-
+				// use the new ExtendedUserViewModel
 				var roomUser = new ExtendedUserViewModel(resultObj[i].uberId);
 
 				resultObj[i].roomUser = roomUser;
@@ -1349,7 +1356,7 @@
 		} else {
 			getOrCreateRoom(roomName).writeSystemMessage(
 					'Successfully ' + action + ' ' + (resObj.roomUser ? resObj.roomUser.displayName() : 'unknown')
-							+ (resObj.reason ? ' for ' + resObj.reason : ''));
+							+ (resObj.reason ? ' for reason ' + resObj.reason : ''));
 		}
 	};
 

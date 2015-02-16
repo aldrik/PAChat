@@ -12,7 +12,7 @@
 									<!-- ko if: lastMessage() -->
 									<span class="chat_message_time" data-bind="text: model.formatTime( new Date( lastMessage().time ), true )"></span>
                                     <span data-bind="text: lastMessage().roomUser && lastMessage().roomUser.roomDisplayName(), 
-                                   style: {color: lastMessage().roomUser ? lastMessage().roomUser.nameColor() : '#00FF00'}"></span>:
+                                   style: {color: lastMessage().roomUser ? lastMessage().roomUser.chatMessageColor() : '#00FF00'}"></span>:
                                     <span class="chat-msg selectable-text" data-bind="text: lastMessage().content"></span>
 									<!-- /ko -->
                                 </div>
@@ -27,12 +27,12 @@
                         <div class="div-chat-room-cont">
                             <div class="div-chat-room-body" data-bind="attr: {id: 'chat-'+roomName()}">
 <!-- ko foreach: sortedMessages -->
-  <!-- ko if: !roomUser || !roomUser.blocked() || roomUser.isAdmin() || roomUser.isModerator() -->
+  <!-- ko if: !roomUser || ((!roomUser.isMuted() && !roomUser.blocked()) || roomUser.isAdmin() || roomUser.isModerator()) -->
 	                                <div class="chat_message" data-bind="css: {'markedline': mentionsMe}">
 										<span class="chat_message_time" data-bind="text: model.formatTime( new Date(time), true ), click: model.toggle24HourTime"></span>
 	                                    <span data-bind="text: roomUser && roomUser.roomDisplayName(), 
 	                                    event: { contextmenu: roomUser && model.showRoomContextMenu.bind( $data.roomUser, $parent, event) },
-										style: {color: roomUser ? roomUser.nameColor() : '#00FF00'}"></span>:
+										style: {color: roomUser ? roomUser.chatMessageColor() : '#00FF00'}"></span>:
 <!-- ko foreach: parts -->
 <!-- ko if: link  -->
                                     <a class="chat-msg" data-bind="click: model.messageLinkClick, attr: { href: text, target : '_blank' }, text: text"></a>
@@ -53,7 +53,7 @@
 									<!-- ko if: user && user.hasLeagueImage() -->
 									<img width="24px" height="20px" data-bind="attr: {src: user.leagueImage()}"/>
 									<!-- /ko -->
-									<span class="selectable-text" data-bind="style: {color: nameColor}, text: roomDisplayName,
+									<span class="selectable-text" data-bind="style: {color: roomColor}, text: roomDisplayName,
 															"></span>
 								</div>
 								<!--/ko -->
