@@ -448,6 +448,14 @@
 
 		self.bannedUsers = ko.observable([]);
 
+		self.getIdOfBannedUser = function(displayname) {
+			var found = self.bannedUsers().filter(function(bannedUser) {
+				var user = bannedUser.roomUser;
+				return user.displayName() === displayName;
+			});
+			return found.length > 0 ? found[0].uberId : undefined;
+		};
+		
 		self.roomName = ko.observable(roomName);
 
 		self.minimized = ko.observable(false);
@@ -748,17 +756,9 @@
 			case '/unban':
 				var displayName = args[0];
 				var reason = args[1] || '';
-
-				var found = self.bannedUsers().filter(function(bannedUser) {
-					return bannedUser.roomDisplayName() === displayName;
-				});
-
-				if (found.length > 0) {
-
-					var uberId = found[0].uberId();
-
+				var uberId = self.getIdOfBannedUser(displayName);
+				if (uberId) {
 					self.unban(uberId, reason);
-
 				} else {
 					self.writeSystemMessage(displayName + ' not found');
 				}
@@ -796,13 +796,7 @@
 				if (handles) {
 					uberId = _.last(_.values(handles));
 				} else {
-					var results = self.bannedUsers().filter(function(bannedUser) {
-						return bannedUser.roomDisplayName() === name;
-					});
-
-					if (results.length > 0) {
-						var uberId = results[0].uberId();
-					}
+					uberId = self.getIdOfBannedUser(name);
 				}
 
 				if (uberId) {
