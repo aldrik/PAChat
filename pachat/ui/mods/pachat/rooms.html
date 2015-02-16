@@ -11,15 +11,8 @@
 									<span class="div-chat-room-name" data-bind="text: roomName"></span> - 
 									<!-- ko if: lastMessage() -->
 									<span class="chat_message_time" data-bind="text: model.formatTime( new Date( lastMessage().time ), true )"></span>
-<<<<<<< HEAD
-                                    <span data-bind="text: lastMessage().roomUser && lastMessage().roomUser.roomDisplayName(), css: { 'chat-room-user-name': lastMessage().roomUser && !lastMessage().roomUser.isModerator() && !lastMessage().roomUser.isAdmin(),
-															'chat-room-moderator-name': lastMessage().roomUser && lastMessage().roomUser.isModerator() && !lastMessage().roomUser.isAdmin(),
-															'chat-room-admin-name': lastMessage().roomUser && lastMessage().roomUser.isAdmin(),
-															'chat-room-self-name': lastMessage().roomUser && lastMessage().roomUser.uberId() === model.uberId()}"></span>:
-=======
                                     <span data-bind="text: lastMessage().roomUser && lastMessage().roomUser.roomDisplayName(), 
                                    style: {color: lastMessage().roomUser ? lastMessage().roomUser.nameColor() : '#00FF00'}"></span>:
->>>>>>> upstream/master
                                     <span class="chat-msg selectable-text" data-bind="text: lastMessage().content"></span>
 									<!-- /ko -->
                                 </div>
@@ -37,24 +30,12 @@
   <!-- ko if: !roomUser || !roomUser.blocked() || roomUser.isAdmin() || roomUser.isModerator() -->
 	                                <div class="chat_message" data-bind="css: {'markedline': mentionsMe}">
 										<span class="chat_message_time" data-bind="text: model.formatTime( new Date(time), true ), click: model.toggle24HourTime"></span>
-<<<<<<< HEAD
-	                                    <span data-bind="text: roomUser && roomUser.roomDisplayName(), event: { contextmenu: roomUser && model.showRoomContextMenu.bind( $data.roomUser, $parent, event) },
-										css: {'chat-room-user-name': !roomUser || ( !roomUser.isModerator() && !roomUser.isAdmin() ),
-																'chat-room-moderator-name': roomUser && roomUser.isModerator() && !roomUser.isAdmin(),
-																'chat-room-admin-name': roomUser && roomUser.isAdmin(),
-																'chat-room-muted-name': roomUser && roomUser.isMuted(),
-																'chat-room-self-name': roomUser && roomUser.uberId() == model.uberId() }"></span>:
-<!-- ko foreach: parts -->
-<!-- ko if: link  -->
-                                    <a class="chat-msg" data-bind="attr: { href: text, target : '_blank' }, text: text"></a>
-=======
 	                                    <span data-bind="text: roomUser && roomUser.roomDisplayName(), 
 	                                    event: { contextmenu: roomUser && model.showRoomContextMenu.bind( $data.roomUser, $parent, event) },
 										style: {color: roomUser ? roomUser.nameColor() : '#00FF00'}"></span>:
 <!-- ko foreach: parts -->
 <!-- ko if: link  -->
                                     <a class="chat-msg" data-bind="click: model.messageLinkClick, attr: { href: text, target : '_blank' }, text: text"></a>
->>>>>>> upstream/master
 <!-- /ko -->
 <!-- ko ifnot: link  -->
                                     <span class="chat-msg selectable-text" data-bind="text: text"></span>
@@ -72,16 +53,8 @@
 									<!-- ko if: user && user.hasLeagueImage() -->
 									<img width="24px" height="20px" data-bind="attr: {src: user.leagueImage()}"/>
 									<!-- /ko -->
-<<<<<<< HEAD
-									<span class="selectable-text" data-bind="css: {'chat-room-user-name': !isModerator() && !isAdmin(),
-															'chat-room-moderator-name': isModerator() && !isAdmin(),
-															'chat-room-admin-name': isAdmin,
-															'chat-room-muted-name': isMuted,
-															'chat-room-blocked-name': blocked }, text: roomDisplayName"></span>
-=======
 									<span class="selectable-text" data-bind="style: {color: nameColor}, text: roomDisplayName,
 															"></span>
->>>>>>> upstream/master
 								</div>
 								<!--/ko -->
 							</div>
