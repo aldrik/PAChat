@@ -482,8 +482,8 @@
         self.minimized = ko.observable(false);
         self.messages = ko.observableArray([]); // objects like {user, content, time}
         self.sortedMessages = ko.computed(function() {
-            return self.messages().sort(function(a, b) {
-                return a.time - b.time;
+            return _.sortBy(self.messages(), function(e) {
+               return e.time; 
             });
         });
         self.lastMessage = ko.computed(function() {
