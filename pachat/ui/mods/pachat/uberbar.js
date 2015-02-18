@@ -147,7 +147,6 @@
             self.startChat()
         }
         self.sendReply = function() {
-            // palobby
             var msg = self.reply();
 
             jabber.sendChat(self.partnerUberId(), msg);
@@ -156,7 +155,6 @@
                 'message' : msg,
                 'parts' : model.splitURLs(msg)
             });
-            //
             self.reply('');
         };
 
@@ -168,14 +166,12 @@
             jabber.sendCommand(self.uberId(), 'chat_invite');
         }
 
+// clicked accept on notification
+
         self.acceptChatInvite = function() {
             console.log('acceptChatInvite');
-            if (!self.pendingChat()) {
-                self.pendingChat(true); // this is done to allow chat while
-                // ALLOW_CHAT tag is being added
-                self.startChat();
-                jabber.sendCommand(self.uberId(), 'accept_chat_invite');
-            }
+
+            jabber.sendCommand(self.uberId(), 'accept_chat_invite');
 
             self.addTag('ALLOW_CHAT', function() {
                 self.pendingChat(false)
@@ -183,10 +179,29 @@
             self.startChat();
         }
 
+// received jabber accept_chat_invite command
+
+        self.acceptChatInviteReceived = function() {
+            console.log('acceptChatInviteReceived');
+
+            self.addTag('ALLOW_CHAT', function() {
+                self.pendingChat(false)
+            });
+            self.startChat();
+        }
+
+// clicked decline on notification
+
         self.declineChatInvite = function() {
             console.log('declineChatInvite');
             if (!self.pendingChat())
                 jabber.sendCommand(self.uberId(), 'decline_chat_invite');
+        }
+
+// received jabber decline_chat_invite command
+
+        self.declineChatInviteReceived = function() {
+            console.log('declineChatInviteReceived');
         }
 
         self.sendFriendRequest = function() {
@@ -197,16 +212,33 @@
             self.addTag('PENDING_FRIEND');
             jabber.sendCommand(self.uberId(), 'friend_request');
         }
+
+// clicked accept on notification
+
         self.acceptFriendRequest = function() {
             console.log('acceptFriendRequest');
-            if (!self.pendingFriend())
-                jabber.sendCommand(self.uberId(), 'accept_friend_request');
+
+            jabber.sendCommand(self.uberId(), 'accept_friend_request');
 
             self.addTag('FRIEND', function() {
                 self.removeTag('PENDING_FRIEND')
             });
             jabber.addContact(self.uberId());
         }
+ 
+// received accept_friend_request jabber command
+
+         self.acceptFriendRequestReceived = function() {
+            console.log('acceptFriendRequestReceived');
+
+            self.addTag('FRIEND', function() {
+                self.removeTag('PENDING_FRIEND')
+            });
+            jabber.addContact(self.uberId());
+        }
+        
+// clicked decline on notification
+
         self.declineFriendRequest = function() {
             console.log('declineFriendRequest');
             if (!self.pendingFriend())
@@ -214,9 +246,19 @@
 
             self.removeTag('PENDING_FRIEND');
         }
+
+// received decline_friend_request jabber command
+
+        self.declineFriendRequestReceived = function() {
+            console.log('declineFriendRequestReceived');
+
+            self.removeTag('PENDING_FRIEND');
+        }
+        
         self.unfriend = function() {
             console.log('unfriend');
             self.removeTag('FRIEND');
+            self.removeTag('ALLOW_CHAT');
             jabber.removeContact(self.uberId());
         }
         self.sendUnfriend = function() {
@@ -229,6 +271,7 @@
         }
 
         self.sendInviteToGame = function() {
+            console.log('sendInviteToGame');
             jabber.sendCommand(self.uberId(), 'game_invite');
 
             model.pendingGameInvites()[self.uberId()] = model.lobbyInfo() ? model.lobbyInfo().lobby_id : false;
@@ -237,11 +280,18 @@
                 api.Panel.message('game', 'create_lobby');
         }
 
+// clicked accept on join game notification
+
         self.acceptInviteToGame = function() {
+            console.log('acceptInviteToGame');
             model.acceptedGameInviteFrom(self.uberId());
             jabber.sendCommand(self.uberId(), 'accept_game_invite');
         }
+
+// clicked decline on join game notification
+
         self.declineInviteToGame = function() {
+            console.log('declineInviteToGame');
             jabber.sendCommand(self.uberId(), 'decline_game_invite');
         }
 
@@ -365,6 +415,10 @@
 
         self.blocked = ko.computed(function() {
             return self.user.blocked();
+        });
+
+        self.allowChat = ko.computed(function() {
+            return self.user.allowChat();
         });
 
         self.isRemoved = ko.observable(removed);
@@ -1032,7 +1086,7 @@
 
     } // end of ChatRoomModel
 
-    // current users will never exist in users so create one
+    // current user will never exist in users so create one
     model.user = ko.observable();
 
     // removed users are for messages where the user is no longer online
@@ -1082,6 +1136,75 @@
         })
     };
 
+// patches
+
+    var oldSetup = model.setup;
+    
+    model.setup = function() {
+        oldSetup();
+        if (decode(sessionStorage['restore_jabber'])) {
+            jabber.setGrpMsgHandler(model.onGrpChat);
+        }
+    };
+
+    var oldJabberAuth = handlers.jabber_authentication;
+
+    handlers.jabber_authentication = function(payload) {
+        // this is our user that will be used in rooms
+        model.user = ko.observable(new ExtendedUserViewModel(model.uberId()));
+        
+        model.user().displayName(model.displayName());
+        
+        model.displayName.subscribe(function(name) {
+            model.user().displayName(name);
+        });
+
+        oldJabberAuth(payload);
+
+        jabber.setGrpMsgHandler(model.onGrpChat);
+        jabber.setResultMsgHandler(model.onResultMsg);
+        jabber.setErrorMsgHandler(model.onErrorMsg);
+        jabber.setConnectHandler(function() {
+            model.getRank(function() {
+                if (!decode(localStorage["info.nanodesu.pachat.disablechat"])) {
+                    model.joinChatRoom("halcyon");
+                }
+            });
+        });
+
+    };
+
+    var oldCommand = model.onCommand
+    
+    model.onCommand = function (uberid, command) {
+        
+        switch( command.message_type ) {
+        
+            case 'accept_chat_invite':
+
+                model.idToContactMap()[uberid].acceptChatInviteReceived()
+                break;
+                
+            case 'decline_chat_invite':
+            
+                model.idToContactMap()[uberid].declineChatInviteReceived()
+                break;
+ 
+            case 'accept_friend_request':
+            
+                model.idToContactMap()[uberid].acceptFriendRequestReceived()
+                break;
+            
+            case 'decline_friend_request':
+            
+                model.idToContactMap()[uberid].declineFriendRequestReceived()
+                break;
+
+            default:
+                oldCommand(uberid, command);
+        }
+    };
+
     var oldPresence = model.onPresence;
 
     model.onPresence = function(from, handle, uid, presenceType, presenceStatus, grpChat, roomName, userInfo, stati, jid) {
@@ -1096,12 +1219,19 @@
 
                 var room = model.chatRoomMap()[roomName];
 
-                // does room exist
-                if (room) {
+                if (presenceType == "error") {
+                     if (_.indexOf(stati, '409') != -1) {
+                        room.writeSystemMessage( 'Handle ' + handle + ' already in use' );
+                        room = false;
+                    }
+                }
 
-                    room.fromJidMap()[from] = jid; // keep a mapping of from to
-                    // jid for real time
-                    // messages
+                // we need room and jid for a valid presence update
+                
+                if (room && jid) {
+
+                    // keep a mapping of from to jid for real time messages
+                    room.fromJidMap()[from] = jid; 
 
                     var roomUser = room.usersMap()[jid];
 
@@ -1125,7 +1255,7 @@
 
                         if (roomUser) {
 
-                            console.log('Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName);
+                            console.log('Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName + ' ' + presenceType );
 
                             roomUser.isModerator(isModerator);
                             roomUser.isAdmin(isAdmin);
@@ -1143,6 +1273,8 @@
 
                             var roomUser = makeChatRoomUser(roomName, uid, handle, isAdmin, isModerator, isMuted, userInfo.league,
                                     userInfo.rank, jid, presenceType, presenceStatus, removed = false);
+
+                            console.log('Adding ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName + ' ' + presenceType );
 
                             model.insertUserIntoRoom(roomName, roomUser);
 
@@ -1168,6 +1300,9 @@
                         }
                     }
                 });
+
+                // update user level presence with existing uber code
+
                 oldPresence(uid, presenceType, presenceStatus);
             }
         } catch (e) {
@@ -1244,14 +1379,6 @@
         }
     });
 
-    var oldSetup = model.setup;
-    model.setup = function() {
-        oldSetup();
-        if (decode(sessionStorage['restore_jabber'])) {
-            jabber.setGrpMsgHandler(model.onGrpChat);
-        }
-    };
-
     model.getRank = function(callback) {
         console.log('getRank');
 
@@ -1306,31 +1433,6 @@
     model.jabberPresenceType.subscribe(function(presenceType) {
         model.getRank(model.updatePresence);
     });
-
-    var oldJabberAuth = handlers.jabber_authentication;
-
-    handlers.jabber_authentication = function(payload) {
-        // this is our user that will be used in rooms
-        model.user = ko.observable(new ExtendedUserViewModel(model.uberId()));
-
-        model.displayName.subscribe(function(name) {
-            model.user().displayName(name);
-        });
-
-        oldJabberAuth(payload);
-
-        jabber.setGrpMsgHandler(model.onGrpChat);
-        jabber.setResultMsgHandler(model.onResultMsg);
-        jabber.setErrorMsgHandler(model.onErrorMsg);
-        jabber.setConnectHandler(function() {
-            model.getRank(function() {
-                if (!decode(localStorage["info.nanodesu.pachat.disablechat"])) {
-                    model.joinChatRoom("halcyon");
-                }
-            });
-        });
-
-    };
 
     // need to check this and improve messages
 
@@ -1492,9 +1594,9 @@
 
             room.minimized(roomName == 'halcyon');
 
-            // room handle should be unique for each client and we could make
-            // the handle the uberId
-            _.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), model.user().displayName());
+            var displayName = model.user().displayName();
+
+            _.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), displayName);
         }
     };
 

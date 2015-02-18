@@ -711,36 +711,46 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
                         ;
                     }
 
-                    userinfo.league = $(message).attr('league');
-                    userinfo.rank = $(message).attr('rank');
-
-                    var x = message.getElementsByTagName("x");
-
-                    if (x && x.length > 0) {
-                        var children = $(x).children();
-                        if (children) {
-                            for (var i = 0; i < children.length; i++) {
-                                var child = $(children[i]);
-                                if (child[0].nodeName === "item") {
-                                    userinfo.affiliation = $(child[0]).attr("affiliation");
-                                    userinfo.role = $(child[0]).attr("role");
-
-                                    jid = $(child[0]).attr("jid");
-
-                                    uid = JidToUberid(jid);
-
-                                } else if (child[0].nodeName === "status") {
-                                    // probably required to handle kick/ban messages
+                    if ( type == 'error' ) {
+                        jid = to;
+                        uid = JidToUberid(jid);
+                        
+                        var error = message.getElementsByTagName("error");
+                        
+                        if ( error && error.length > 0 ){
+                            stati.push($(error[0]).attr("code"));
+                        }
+                    } else {
+                        userinfo.league = $(message).attr('league');
+                        userinfo.rank = $(message).attr('rank');
+    
+                        var x = message.getElementsByTagName("x");
+    
+                        if (x && x.length > 0) {
+                            
+                            var stt = x[0].getElementsByTagName("status");
+                            if (stt) {
+                                for (var i = 0; i < stt.length; i++) {
+                                    stati.push($(stt[i]).attr("code"));
                                 }
                             }
-                        }
-                    }
-
-                    if (x && x.length > 0) {
-                        var stt = x[0].getElementsByTagName("status");
-                        if (stt) {
-                            for (var i = 0; i < stt.length; i++) {
-                                stati.push($(stt[i]).attr("code"));
+                            
+                            var children = $(x).children();
+                            if (children) {
+                                for (var i = 0; i < children.length; i++) {
+                                    var child = $(children[i]);
+                                    if (child[0].nodeName === "item") {
+                                        userinfo.affiliation = $(child[0]).attr("affiliation");
+                                        userinfo.role = $(child[0]).attr("role");
+    
+                                        jid = $(child[0]).attr("jid");
+    
+                                        uid = JidToUberid(jid);
+    
+                                    } else if (child[0].nodeName === "status") {
+                                        // probably required to handle kick/ban messages
+                                    }
+                                }
                             }
                         }
                     }
