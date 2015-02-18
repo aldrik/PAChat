@@ -170,7 +170,7 @@
             console.log('acceptChatInvite');
             if (!self.pendingChat()) {
 //                self.pendingChat(true); // this is done to allow chat while ALLOW_CHAT tag is being added
-                self.startChat();
+//                 self.startChat();
                 jabber.sendCommand(self.uberId(), 'accept_chat_invite');
             }
 
@@ -1310,7 +1310,9 @@
     handlers.jabber_authentication = function(payload) {
         // this is our user that will be used in rooms
         model.user = ko.observable(new ExtendedUserViewModel(model.uberId()));
-
+        
+        model.user().displayName(model.displayName());
+        
         model.displayName.subscribe(function(name) {
             model.user().displayName(name);
         });
