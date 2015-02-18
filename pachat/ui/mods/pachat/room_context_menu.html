@@ -5,7 +5,7 @@
 <!-- ko with: model.selectedRoom -->
 <!-- ko with: model.selectedRoomUser -->
 
-<!-- ko if: friend() && online() -->
+<!-- ko if: online() && allowChat() -->
         <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'startChat' )" tabindex="-1" href="#"><span class="menu-action">
             <loc data-i18n="uberbar:chat.message" desc="">Chat</loc>
         </span></a></li>
@@ -17,7 +17,7 @@
         </span></a></li>
 <!-- /ko -->
 
-<!-- ko if: ! friend() && ! blocked() -->
+<!-- ko if: ! allowChat() && ! blocked() -->
         <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'sendChatInvite' )" tabindex="-1" href="#"><span class="menu-action">
             <loc data-i18n="uberbar:invite_to_chat.message" desc="">Invite to Chat</loc>
         </span></a></li>
