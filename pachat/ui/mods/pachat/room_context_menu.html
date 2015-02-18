@@ -23,6 +23,12 @@
         </span></a></li>
 <!-- /ko -->
 
+<!-- ko if: (model.readyToSendLobbyInfo()) -->
+      <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'sendGameInvite' )" tabindex="-1" href="#"><span class="menu-action">
+          <loc data-i18n="uberbar:invite_to_game.message" desc="">Invite to game</loc>
+      </span></a></li>
+<!-- /ko -->
+
 <!-- ko if: friend -->
         <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'sendUnfriend' )" tabindex="-1" href="#"><span class="menu-action">
             <loc data-i18n="uberbar:unfriend.message" desc="">Unfriend</loc>

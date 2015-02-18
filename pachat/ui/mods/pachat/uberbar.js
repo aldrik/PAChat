@@ -1562,6 +1562,9 @@
         case 'sendChatInvite':
             roomUser.user.sendChatInvite();
             break;
+        case 'sendGameInvite':
+            roomUser.user.sendInviteToGame();
+            break;
         case 'sendUnfriend':
             roomUser.user.sendUnfriend();
             break;
