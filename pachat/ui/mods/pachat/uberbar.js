@@ -147,7 +147,6 @@
             self.startChat()
         }
         self.sendReply = function() {
-            // palobby
             var msg = self.reply();
 
             jabber.sendChat(self.partnerUberId(), msg);
@@ -156,7 +155,6 @@
                 'message' : msg,
                 'parts' : model.splitURLs(msg)
             });
-            //
             self.reply('');
         };
 
@@ -171,8 +169,7 @@
         self.acceptChatInvite = function() {
             console.log('acceptChatInvite');
             if (!self.pendingChat()) {
-                self.pendingChat(true); // this is done to allow chat while
-                // ALLOW_CHAT tag is being added
+//                self.pendingChat(true); // this is done to allow chat while ALLOW_CHAT tag is being added
                 self.startChat();
                 jabber.sendCommand(self.uberId(), 'accept_chat_invite');
             }
@@ -1032,7 +1029,7 @@
 
     } // end of ChatRoomModel
 
-    // current users will never exist in users so create one
+    // current user will never exist in users so create one
     model.user = ko.observable();
 
     // removed users are for messages where the user is no longer online
@@ -1099,9 +1096,8 @@
                 // does room exist
                 if (room) {
 
-                    room.fromJidMap()[from] = jid; // keep a mapping of from to
-                    // jid for real time
-                    // messages
+                    // keep a mapping of from to jid for real time messages
+                    room.fromJidMap()[from] = jid; 
 
                     var roomUser = room.usersMap()[jid];
 
@@ -1125,7 +1121,7 @@
 
                         if (roomUser) {
 
-                            console.log('Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName);
+                            console.log('Updating ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName + ' ' + presenceType );
 
                             roomUser.isModerator(isModerator);
                             roomUser.isAdmin(isAdmin);
@@ -1143,6 +1139,8 @@
 
                             var roomUser = makeChatRoomUser(roomName, uid, handle, isAdmin, isModerator, isMuted, userInfo.league,
                                     userInfo.rank, jid, presenceType, presenceStatus, removed = false);
+
+                            console.log('Adding ' + jid + ' (' + roomUser.displayInfo() + ') in ' + roomName + ' ' + presenceType );
 
                             model.insertUserIntoRoom(roomName, roomUser);
 
@@ -1492,9 +1490,9 @@
 
             room.minimized(roomName == 'halcyon');
 
-            // room handle should be unique for each client and we could make
-            // the handle the uberId
-            _.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), model.user().displayName());
+            var displayName = model.user().displayName();
+
+            _.defer(jabber.joinGroupChat, roomName, model.user().league(), model.user().rank(), displayName);
         }
     };
 
