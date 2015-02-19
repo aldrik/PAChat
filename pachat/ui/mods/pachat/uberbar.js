@@ -26,6 +26,10 @@
         local : 'alignChatLeft'
     });
 
+    model.pastatsIds = ko.observable({}).extend({
+        local: 'info.nanodesu.pachat.pastatsids'
+    });
+    
     loadScript("coui://ui/main/shared/js/matchmaking_utility.js");
 
     ko.bindingHandlers.resizable = {
@@ -387,7 +391,28 @@
         self.isModerator = ko.observable(mod);
         self.isAdmin = ko.observable(admin);
         self.isMuted = ko.observable(muted);
-
+        
+        self.getPaStatsIdAndOpen = function(pageUrl) {
+            var cached = model.pastatsIds()[self.uberId()];
+            if (cached === undefined) {
+                // this may seem inefficient, but for any player who has pa stats enabled it will only be run once and only when opening the context menu.
+                engine.asyncCall('ubernet.call', '/GameClient/UserName?UberId=' + self.uberId(), false).done(function(data) {
+                    var result = JSON.parse(data);
+                    var pastatsprofilelink = 'http://www.pastats.com/report/getplayerid?ubername=' + result.UberName;
+                    $.get(pastatsprofilelink, function(data) {
+                        console.log("loaded pa stats id "+ data + " for player " + self.uberId());
+                        if (data !== "-1" && data !== -1) {
+                            model.pastatsIds()[self.uberId()] = data;
+                        }
+                        model.openUrl(pageUrl + data); // this opens an empty profile for players who do not have a profile. Not optimal, but should be okay I think.
+                    });
+                });
+            } else {
+                console.log("use cached pa stats id "+cached + " for player " + self.uberId());
+                model.openUrl(pageUrl + cached);
+            }
+        };
+        
         // these are room level
 
         self.jabberPresenceType = ko.observable(presenceType);
@@ -1686,6 +1711,12 @@
             break;
         case 'kick':
             room.kick(roomUser.roomDisplayName(), model.displayName())
+            break;
+        case 'pastats':
+            roomUser.getPaStatsIdAndOpen("http://pastats.com/player?player=");
+            break;
+        case "exodus":
+            roomUser.getPaStatsIdAndOpen("http://exodusesports.com?pastats_player_id=");
             break;
         }
     }

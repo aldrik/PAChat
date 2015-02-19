@@ -29,6 +29,14 @@
       </span></a></li>
 <!-- /ko -->
 
+      <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'pastats' )" tabindex="-1" href="#"><span class="menu-action">
+          pastats.com
+      </span></a></li>
+      
+      <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'exodus' )" tabindex="-1" href="#"><span class="menu-action">
+          eXoduseSports.com
+      </span></a></li>
+
 <!-- ko if: friend -->
         <li><a data-bind="click: model.roomContextMenuClick.bind( $data, $parent, 'sendUnfriend' )" tabindex="-1" href="#"><span class="menu-action">
             <loc data-i18n="uberbar:unfriend.message" desc="">Unfriend</loc>
