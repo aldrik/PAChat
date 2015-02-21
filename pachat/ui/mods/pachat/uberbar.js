@@ -1321,11 +1321,12 @@
         }
     };
 
+
     var notifyPlayer = function() {
         api.game.outOfGameNotification("");
         api.Panel.message("options_bar", "alertSocial");
     };
-
+    
     model.onGrpChat = function(roomName, handle, from, uberId, stati, content, timestamp, jid, systemMessage) {
         if (systemMessage) {
             if (content != 'This room is not anonymous') {
@@ -1376,6 +1377,11 @@
             content : content,
             time : timestamp
         });
+        
+        if (content && content.toLowerCase().indexOf(model.displayName().toLowerCase()) !== -1 && 
+                (new Date().getTime() - timestamp) < 10 * 1000) {
+            notifyPlayer();
+        }
     };
 
     model.conversations.subscribe(function(c) {
