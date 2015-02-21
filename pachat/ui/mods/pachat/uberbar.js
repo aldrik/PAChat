@@ -1558,9 +1558,8 @@
             model.chatRoomMap.notifySubscribers();
             room = model.chatRoomMap()[roomName];
             room.scrollDown();
+            jabber.setChannelPresence(roomName, jabber.presenceType(), model.user().league(), model.user().rank());
         }
-
-        jabber.setChannelPresence(roomName, jabber.presenceType(), model.user().league(), model.user().rank());
 
         return room;
 
