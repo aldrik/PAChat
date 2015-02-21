@@ -1286,21 +1286,6 @@
 
             } else {
 
-                // update rooms with user level presence
-
-                _.forEach(model.chatRooms(), function(room) {
-
-                    var roomUser = room.usersMap()[jid];
-                    if (roomUser) {
-                        if (presenceType == "unavailable") {
-                            room.removeUser(jid);
-                        } else {
-                            roomUser.jabberPresenceType(presenceType);
-                            roomUser.jabberPresenceStatus(presenceStatus);
-                        }
-                    }
-                });
-
                 // update user level presence with existing uber code
 
                 oldPresence(uid, presenceType, presenceStatus);
@@ -1412,7 +1397,15 @@
             return;
         }
 
-        jabber.presenceType(model.jabberPresenceType());
+        var presenceType = model.jabberPresenceType();
+        
+        jabber.presenceType(presenceType);
+
+        _.forEach(model.chatRooms(), function(room) {
+
+            jabber.setChannelPresence(room.roomName(), presenceType, model.user().league(), model.user().rank());
+            
+        });
     }
 
     model.showUberBar.subscribe(function(visible) {
