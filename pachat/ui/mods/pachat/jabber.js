@@ -619,7 +619,7 @@ function Jabberer(uber_id, jabber_token, use_ubernetdev) {
             if (Strophe.getText(body[0]))
                 content = htmlSpecialChars(Strophe.getText(body[0]), true);
 
-// new properietary xmpp address extension with ofrom type based on http://xmpp.org/extensions/xep-0033.html
+// new xmpp address extension with ofrom type based on http://xmpp.org/extensions/xep-0045.html#enter-history
 
             var address = message.getElementsByTagName("address");
             if (address.length === 1)
